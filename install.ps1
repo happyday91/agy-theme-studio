@@ -13,12 +13,18 @@ $TargetDir  = Join-Path $PluginsDir $PluginName
 
 function Copy-PluginFiles([string]$SourceRoot, [string]$DestRoot) {
   New-Item -ItemType Directory -Force -Path $DestRoot | Out-Null
-  foreach ($item in @('plugin.json', 'README.md', 'install.ps1', 'install.sh', 'assets', 'sidecars', 'skills')) {
+  foreach ($item in @('plugin.json', 'README.md', 'install.ps1', 'install.sh')) {
     $src = Join-Path $SourceRoot $item
     if (Test-Path $src) {
-      $dst = Join-Path $DestRoot $item
-      if (Test-Path $dst) { Remove-Item -Recurse -Force $dst }
-      Copy-Item -Recurse -Force $src $dst
+      Copy-Item -Force $src (Join-Path $DestRoot $item)
+    }
+  }
+  foreach ($dir in @('assets', 'sidecars', 'skills')) {
+    $srcDir = Join-Path $SourceRoot $dir
+    if (Test-Path $srcDir) {
+      $dstDir = Join-Path $DestRoot $dir
+      New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+      Copy-Item -Recurse -Force (Join-Path $srcDir '*') $dstDir
     }
   }
 }

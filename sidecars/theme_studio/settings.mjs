@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { BUILTIN_EXPRESSIONS, BUILTIN_PORTRAITS, BUILTIN_PRESETS, DEFAULT_SETTINGS } from './presets.mjs';
@@ -93,9 +93,15 @@ export class SettingsStore {
 
   _write(data) {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    const tmp = `${this.filePath}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
-    renameSync(tmp, this.filePath);
+    const text = JSON.stringify(data, null, 2);
+    const tmp = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(tmp, text, 'utf8');
+    try {
+      renameSync(tmp, this.filePath);
+    } catch {
+      writeFileSync(this.filePath, text, 'utf8');
+      try { unlinkSync(tmp); } catch {}
+    }
   }
 
   read() {

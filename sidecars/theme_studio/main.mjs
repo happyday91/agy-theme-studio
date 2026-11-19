@@ -229,10 +229,19 @@ try {
     clearTimeout(modReloadTimer);
     modReloadTimer = setTimeout(() => void hotReloadModules(), 350);
   });
-  watch(ASSETS_DIR, () => {
-    injector.imageCache.clear();
-    void injector.syncAll();
-  });
+  try {
+    watch(ASSETS_DIR, { recursive: true }, () => {
+      injector.imageCache.clear();
+      injector._exprPackCache = null;
+      void injector.syncAll();
+    });
+  } catch {
+    watch(ASSETS_DIR, () => {
+      injector.imageCache.clear();
+      injector._exprPackCache = null;
+      void injector.syncAll();
+    });
+  }
 } catch {
   // ignore
 }

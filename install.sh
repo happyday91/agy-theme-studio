@@ -12,10 +12,15 @@ copy_plugin_files() {
   local src_root="$1"
   local dst_root="$2"
   mkdir -p "$dst_root"
-  for item in plugin.json README.md install.ps1 install.sh assets sidecars skills; do
+  for item in plugin.json README.md install.ps1 install.sh; do
     if [ -e "$src_root/$item" ]; then
-      rm -rf "$dst_root/$item"
-      cp -R "$src_root/$item" "$dst_root/$item"
+      cp -f "$src_root/$item" "$dst_root/$item"
+    fi
+  done
+  for dir in assets sidecars skills; do
+    if [ -d "$src_root/$dir" ]; then
+      mkdir -p "$dst_root/$dir"
+      cp -Rf "$src_root/$dir/." "$dst_root/$dir/"
     fi
   done
 }

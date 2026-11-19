@@ -297,7 +297,7 @@
           <label><input type="checkbox" id="p-aux-shift"> 左移避让</label>
           <label><input type="checkbox" id="p-idle-motion"> 呼吸微摆</label>
           <label><input type="checkbox" id="p-click-bounce"> 点击弹跳</label>
-          <label><input type="checkbox" id="p-click-expr"> 戳戳变脸</label>
+          <label title="点击立绘头部即可随机切换并固定为新表情"><input type="checkbox" id="p-click-expr"> 搓头变脸</label>
           <label><input type="checkbox" id="p-flip-x"> 镜像翻转</label>
         </div>
       </div>
@@ -466,10 +466,11 @@
       document.getElementById('night-hour').value = s.nightStartHour;
 
       const presets = Object.values(data.presets || {});
+      const presetSig = presets.map((p) => `${p.id}:${p.name}`).join('|');
       for (const selId of ['day-preset', 'night-preset']) {
         const sel = document.getElementById(selId);
         const target = selId === 'day-preset' ? s.dayPresetId : s.nightPresetId;
-        if (sel.options.length !== presets.length) {
+        if (sel.dataset.sig !== presetSig) {
           sel.innerHTML = '';
           for (const p of presets) {
             const opt = document.createElement('option');
@@ -477,6 +478,7 @@
             opt.textContent = p.name;
             sel.appendChild(opt);
           }
+          sel.dataset.sig = presetSig;
         }
         sel.value = target;
       }
@@ -560,7 +562,7 @@
       document.getElementById('v-glass-op').textContent = Math.round(s.effects.glassOpacity * 100) + '%';
       document.getElementById('e-radius').value = s.effects.borderRadius;
       document.getElementById('v-radius').textContent = s.effects.borderRadius + 'px';
-      if (document.activeElement.id !== 'e-font') document.getElementById('e-font').value = s.effects.fontFamily || '';
+      if (document.activeElement?.id !== 'e-font') document.getElementById('e-font').value = s.effects.fontFamily || '';
 
       for (const inp of document.querySelectorAll('input[data-color]')) {
         const key = inp.dataset.color;
@@ -571,7 +573,14 @@
       requestAnimationFrame(fitViewport);
     }
 
+    let lastPatchAt = 0;
+    let pointerDownActive = false;
+    document.addEventListener('pointerdown', () => { pointerDownActive = true; }, { passive: true });
+    document.addEventListener('pointerup', () => { pointerDownActive = false; }, { passive: true });
+    document.addEventListener('pointercancel', () => { pointerDownActive = false; }, { passive: true });
+
     async function patch(body) {
+      lastPatchAt = Date.now();
       const next = await apiPost('/api/settings', body);
       render(next);
     }
@@ -695,12 +704,18 @@
     });
 
     async function refresh() {
+      if (document.hidden || pointerDownActive || Date.now() - lastPatchAt < 900) return;
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT')) return;
       try {
-        render(await apiGet('/api/state'));
+        const reqStartedAt = Date.now();
+        const data = await apiGet('/api/state');
+        if (lastPatchAt > reqStartedAt || pointerDownActive) return;
+        render(data);
       } catch {}
     }
     void refresh();
-    setInterval(refresh, 4000);
+    setInterval(refresh, 1800);
   </script>
 </body>
 </html>

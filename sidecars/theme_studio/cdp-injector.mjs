@@ -57,7 +57,9 @@ class CdpSession {
     this.nextId = 0;
     this.closed = false;
     this.contextId = null;
-    this.sentImageHash = null;
+    this.knownImageHashes = new Set();
+    this.sentExprHash = null;
+    this.sentBgHash = null;
   }
 
   open(timeout = 5000) {
@@ -506,6 +508,9 @@ function pageController(payload) {
     window.__atsDiscoveredVars = null;
     window.__atsDiscoveredSig = null;
     window.__atsBounce = null;
+    window.__atsDesiredHash = '';
+    window.__atsPendingLoads = null;
+    window.__atsRefreshExpr = null;
   }
 
   if (!payload || payload.enabled === false) {
@@ -656,17 +661,13 @@ function pageController(payload) {
   window.__atsClickExpr = payload.clickExpression !== false;
   window.__atsExprOffsetX = Number.isFinite(Number(payload.exprOffsetX)) ? Number(payload.exprOffsetX) : 0;
   const nextBaseExpr = typeof payload.expression === 'string' && payload.expression ? payload.expression : 'default';
-  if (window.__atsBaseExpr !== nextBaseExpr) {
-    window.__atsBaseExpr = nextBaseExpr;
-    window.__atsTempExpr = '';
-    if (window.__atsTempExprTimer) {
-      clearTimeout(window.__atsTempExprTimer);
-      window.__atsTempExprTimer = 0;
-    }
-  }
+  window.__atsBaseExpr = nextBaseExpr;
 
   if (!window.__atsExprPack) {
     window.__atsExprPack = { hash: '', imgs: {} };
+  }
+  if (!window.__atsPortraitCache) {
+    window.__atsPortraitCache = { order: [], map: {} };
   }
   let needExprPack = false;
   if (window.__atsShowPortrait && window.__atsAllowExpr && payload.exprPackHash) {
@@ -677,8 +678,7 @@ function pageController(payload) {
         if (!entry?.dataUrl) continue;
         const pImg = new Image();
         pImg.onload = () => {
-          const curImg = document.getElementById('agy-theme-studio-portrait');
-          if (curImg) ensureHitMapAndTexture(curImg);
+          window.__atsRefreshExpr?.();
         };
         pImg.src = entry.dataUrl;
         nextImgs[eid] = { img: pImg, x: Number(entry.x || 0), y: Number(entry.y || 0) };
@@ -691,7 +691,7 @@ function pageController(payload) {
 
   function getEffectiveExpr() {
     if (!window.__atsAllowExpr) return 'default';
-    return window.__atsTempExpr || window.__atsBaseExpr || 'default';
+    return window.__atsBaseExpr || 'default';
   }
 
   if (!window.__atsBounce) {
@@ -701,10 +701,15 @@ function pageController(payload) {
       hitAlpha: null,
       hitHash: '',
       gl: null,
+      shaderVer: 0,
       prog: null,
       tex: null,
+      texPrev: null,
+      texReady: false,
       texHash: '',
       texKey: '',
+      fadeStartMs: 0,
+      fadeMode: 'expr',
       compCanvas: null,
       indexCount: 0,
       uAspect: null,
@@ -712,6 +717,10 @@ function pageController(payload) {
       uIdle: null,
       uCount: null,
       uImpulses: null,
+      uTex: null,
+      uTexPrev: null,
+      uFade: null,
+      uExprPulse: null,
       impulses: [],
       aspect: 0.67,
       lastRenderMs: 0,
@@ -721,8 +730,9 @@ function pageController(payload) {
   function kickAnimLoop() {
     const st = window.__atsBounce;
     if (!st || !imgEl || document.hidden || !window.__atsShowPortrait) return;
+    const isFading = st.fadeStartMs > 0 && performance.now() - st.fadeStartMs < 350;
     const needStaticExpr = st.gl && getEffectiveExpr() !== 'default';
-    const needAnim = st.gl && (window.__atsIdleAmp > 0 || st.impulses.length > 0);
+    const needAnim = st.gl && (window.__atsIdleAmp > 0 || st.impulses.length > 0 || isFading);
     if ((needAnim || needStaticExpr) && !window.__atsBounceRaf) {
       window.__atsBounceRaf = requestAnimationFrame(renderFrame);
     } else if (!needAnim && !needStaticExpr && canvasEl) {
@@ -731,38 +741,46 @@ function pageController(payload) {
     }
   }
 
-  function ensureHitMapAndTexture(img) {
+  function computeHitAlpha(img) {
     const st = window.__atsBounce;
-    const hash = img.dataset.hash || '';
-    if (!img.complete || !img.naturalWidth || !hash) return;
-    st.aspect = img.naturalWidth / img.naturalHeight;
+    try {
+      const hc = document.createElement('canvas');
+      hc.width = st.hitW;
+      hc.height = st.hitH;
+      const ctx = hc.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, st.hitW, st.hitH);
+      const raw = ctx.getImageData(0, 0, st.hitW, st.hitH).data;
+      const alpha = new Uint8Array(st.hitW * st.hitH);
+      for (let i = 0, j = 3; i < alpha.length; i++, j += 4) alpha[i] = raw[j];
+      return alpha;
+    } catch {
+      return null;
+    }
+  }
+
+  function ensureHitMapAndTexture(img, hashOverride = '', hitAlphaOverride = null) {
+    const st = window.__atsBounce;
+    const hash = hashOverride || img?.dataset?.hash || '';
+    if (!img || !img.complete || !img.naturalWidth || !hash) return;
+    const newAspect = img.naturalWidth / img.naturalHeight;
+    const prevAspect = st.aspect;
+    st.aspect = newAspect;
 
     if (st.hitHash !== hash) {
-      try {
-        const hc = document.createElement('canvas');
-        hc.width = st.hitW;
-        hc.height = st.hitH;
-        const ctx = hc.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0, st.hitW, st.hitH);
-        const raw = ctx.getImageData(0, 0, st.hitW, st.hitH).data;
-        const alpha = new Uint8Array(st.hitW * st.hitH);
-        for (let i = 0, j = 3; i < alpha.length; i++, j += 4) alpha[i] = raw[j];
-        st.hitAlpha = alpha;
-        st.hitHash = hash;
-      } catch {
-        st.hitAlpha = null;
-      }
+      st.hitAlpha = hitAlphaOverride || computeHitAlpha(img);
+      st.hitHash = hash;
     }
 
-    if (canvasEl && (!st.gl || st.texHash !== hash)) {
-      if (!st.gl) {
-        const gl = canvasEl.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
+    if (canvasEl) {
+      if (!st.gl || st.shaderVer !== 2) {
+        const gl = st.gl || canvasEl.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
         if (gl) {
           const vsSrc = [
             'attribute vec2 a_uv;',
             'uniform float u_aspect;',
             'uniform float u_time;',
             'uniform float u_idle;',
+            'uniform float u_expr_pulse;',
             'uniform int u_count;',
             'uniform vec4 u_impulses[6];',
             'varying vec2 v_uv;',
@@ -774,13 +792,17 @@ function pageController(payload) {
             '  float sideAnchor = smoothstep(0.0, 0.04, u) * smoothstep(1.0, 0.96, u);',
             '  float anchors = bottomAnchor * sideAnchor;',
             '  vec2 disp = vec2(0.0);',
+            '  float headMask = smoothstep(0.36, 0.22, v) * smoothstep(0.02, 0.10, v);',
+            '  if (abs(u_expr_pulse) > 0.0005) {',
+            '    disp.y += 0.0085 * u_expr_pulse * headMask;',
+            '    disp.x += (u - 0.5) * -0.006 * u_expr_pulse * headMask;',
+            '  }',
             '  if (u_idle > 0.001) {',
             '    float breath = sin(u_time * 1.75);',
             '    vec2 cRel = vec2((u - 0.45) / 0.19, (v - 0.43) / 0.11);',
             '    float chestMask = exp(-0.5 * dot(cRel, cRel)) * smoothstep(0.28, 0.38, v) * bottomAnchor;',
             '    disp.y += -0.0055 * u_idle * breath * chestMask;',
             '    disp += vec2((u - 0.45) * 0.8, (v - 0.43)) * (0.014 * u_idle * breath * chestMask);',
-            '    float headMask = smoothstep(0.36, 0.24, v) * smoothstep(0.02, 0.10, v);',
             '    disp.y += -0.0022 * u_idle * sin(u_time * 1.75 - 0.45) * headMask;',
             '    float outerSide = smoothstep(0.25, 0.08, u) + smoothstep(0.68, 0.88, u);',
             '    float outerMask = clamp(outerSide, 0.0, 1.0) * smoothstep(0.22, 0.42, v) * smoothstep(0.94, 0.78, v) * sideAnchor;',
@@ -815,9 +837,17 @@ function pageController(payload) {
           const fsSrc = [
             'precision mediump float;',
             'uniform sampler2D u_tex;',
+            'uniform sampler2D u_tex_prev;',
+            'uniform float u_fade;',
             'varying vec2 v_uv;',
             'void main() {',
-            '  gl_FragColor = texture2D(u_tex, v_uv);',
+            '  vec4 cur = texture2D(u_tex, v_uv);',
+            '  if (u_fade >= 0.999) {',
+            '    gl_FragColor = cur;',
+            '  } else {',
+            '    vec4 prev = texture2D(u_tex_prev, v_uv);',
+            '    gl_FragColor = mix(prev, cur, u_fade);',
+            '  }',
             '}',
           ].join('\n');
           const compile = (type, src) => {
@@ -862,14 +892,30 @@ function pageController(payload) {
           gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
 
           st.gl = gl;
+          st.shaderVer = 2;
           st.prog = prog;
           st.indexCount = idx.length;
           st.uAspect = gl.getUniformLocation(prog, 'u_aspect');
           st.uTime = gl.getUniformLocation(prog, 'u_time');
           st.uIdle = gl.getUniformLocation(prog, 'u_idle');
+          st.uExprPulse = gl.getUniformLocation(prog, 'u_expr_pulse');
           st.uCount = gl.getUniformLocation(prog, 'u_count');
           st.uImpulses = gl.getUniformLocation(prog, 'u_impulses');
-          st.tex = gl.createTexture();
+          st.uTex = gl.getUniformLocation(prog, 'u_tex');
+          st.uTexPrev = gl.getUniformLocation(prog, 'u_tex_prev');
+          st.uFade = gl.getUniformLocation(prog, 'u_fade');
+          if (!st.tex) st.tex = gl.createTexture();
+          if (!st.texPrev) st.texPrev = gl.createTexture();
+          // 用 1x1 透明像素占位初始化 texPrev，避免切穿搭时同步上传两遍大图
+          gl.bindTexture(gl.TEXTURE_2D, st.texPrev);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+          st.texReady = false;
+          st.texKey = '';
+          st.texHash = '';
         }
       }
       const targetExpr = getEffectiveExpr();
@@ -898,14 +944,30 @@ function pageController(payload) {
           cctx.drawImage(exprEntry.img, exprEntry.x + offsetX, exprEntry.y);
           texSource = st.compCanvas;
         }
-        gl.bindTexture(gl.TEXTURE_2D, st.tex);
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texSource);
+        const uploadTex = (texObj) => {
+          gl.bindTexture(gl.TEXTURE_2D, texObj);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texSource);
+        };
+        const isSameBase = st.texHash === hash && st.texReady;
+        const canOutfitFade = !isSameBase && st.texReady && prevAspect > 0 && Math.abs(prevAspect - newAspect) < 0.03;
+        if (isSameBase || canOutfitFade) {
+          const oldTex = st.tex;
+          st.tex = st.texPrev;
+          st.texPrev = oldTex;
+          uploadTex(st.tex);
+          st.fadeMode = isSameBase ? 'expr' : 'outfit';
+          st.fadeStartMs = performance.now();
+        } else {
+          uploadTex(st.tex);
+          st.fadeStartMs = 0;
+          st.texReady = true;
+        }
         st.texHash = hash;
         st.texKey = nextTexKey;
       }
@@ -924,6 +986,14 @@ function pageController(payload) {
     const hasImpulses = st.impulses.length > 0;
     const idleAmp = window.__atsIdleAmp || 0;
     const activeExpr = getEffectiveExpr();
+    const fadeAgeMs = st.fadeStartMs > 0 ? Math.max(0, now - st.fadeStartMs) : 9999;
+    const isFading = st.fadeStartMs > 0 && fadeAgeMs < (st.fadeMode === 'expr' ? 350 : 250);
+    if (!isFading) st.fadeStartMs = 0;
+    const fadeRaw = isFading ? Math.min(1, fadeAgeMs / (st.fadeMode === 'expr' ? 260 : 220)) : 1;
+    const fadeT = 1 - Math.pow(1 - fadeRaw, 3);
+    const exprPulse = isFading && st.fadeMode === 'expr'
+      ? Math.sin((fadeAgeMs / 1000) * 18.0) * Math.exp(-(fadeAgeMs / 1000) * 9.5)
+      : 0;
 
     if (document.hidden || !window.__atsShowPortrait) {
       imgEl.style.visibility = 'visible';
@@ -932,12 +1002,20 @@ function pageController(payload) {
       return;
     }
 
-    if (!hasImpulses && idleAmp <= 0) {
+    if (!hasImpulses && !isFading && idleAmp <= 0) {
       if (activeExpr !== 'default' && st.gl && canvasEl && st.texHash === (imgEl.dataset.hash || '')) {
         const gl = st.gl;
         gl.useProgram(st.prog);
         gl.clearColor(0, 0, 0, 0);
         gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, st.tex);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, st.texPrev || st.tex);
+        gl.uniform1i(st.uTex, 0);
+        gl.uniform1i(st.uTexPrev, 1);
+        gl.uniform1f(st.uFade, 1.0);
+        gl.uniform1f(st.uExprPulse, 0);
         gl.uniform1f(st.uAspect, st.aspect);
         gl.uniform1f(st.uTime, now / 1000);
         gl.uniform1f(st.uIdle, 0);
@@ -953,8 +1031,8 @@ function pageController(payload) {
       return;
     }
 
-    // 仅在待机呼吸模式下节流到 ~30fps 省电，点击弹跳时保持 60fps 丝滑
-    if (!hasImpulses && now - st.lastRenderMs < 32) {
+    // 待机呼吸模式节流到 ~30fps 省电；点击弹跳与表情/穿搭过渡保持 60fps 丝滑
+    if (!hasImpulses && !isFading && now - st.lastRenderMs < 32) {
       window.__atsBounceRaf = requestAnimationFrame(renderFrame);
       return;
     }
@@ -974,6 +1052,14 @@ function pageController(payload) {
       gl.useProgram(st.prog);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, st.tex);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, st.texPrev || st.tex);
+      gl.uniform1i(st.uTex, 0);
+      gl.uniform1i(st.uTexPrev, 1);
+      gl.uniform1f(st.uFade, fadeT);
+      gl.uniform1f(st.uExprPulse, exprPulse);
       gl.uniform1f(st.uAspect, st.aspect);
       gl.uniform1f(st.uTime, now / 1000);
       gl.uniform1f(st.uIdle, idleAmp);
@@ -1016,7 +1102,13 @@ function pageController(payload) {
   }
 
   window.__atsRefreshExpr = () => {
-    if (imgEl && imgEl.complete && imgEl.naturalWidth) ensureHitMapAndTexture(imgEl);
+    const desired = window.__atsDesiredHash || imgEl?.dataset?.hash || '';
+    const cached = desired ? window.__atsPortraitCache?.map?.[desired] : null;
+    if (cached?.img?.complete && cached.img.naturalWidth) {
+      ensureHitMapAndTexture(cached.img, desired, cached.hitAlpha);
+    } else if (imgEl && imgEl.complete && imgEl.naturalWidth) {
+      ensureHitMapAndTexture(imgEl);
+    }
   };
 
   if (!window.__atsPointerHandler) {
@@ -1045,22 +1137,18 @@ function pageController(payload) {
       const st = window.__atsBounce;
       if (!st) return;
 
-      if (canPokeExpr && window.__atsExprPack?.imgs) {
-        const curExpr = window.__atsTempExpr || window.__atsBaseExpr || 'default';
-        const pool = uy < 0.30
-          ? ['shy', 'wink', 'starry']
-          : (curExpr === 'sleepy' ? ['starry', 'shy', 'wink'] : ['shy', 'wink', 'smug', 'starry']);
-        const candidates = pool.filter((id) => id !== curExpr && window.__atsExprPack.imgs[id]);
+      const isHeadHit = uy >= 0 && uy <= 0.295 && ux >= 0.20 && ux <= 0.72;
+      if (canPokeExpr && isHeadHit && window.__atsExprPack?.imgs) {
+        const curExpr = window.__atsBaseExpr || 'default';
+        const pool = ['default', 'wink', 'smug', 'shy', 'sleepy', 'starry'];
+        const candidates = pool.filter((id) => id !== curExpr && (id === 'default' || window.__atsExprPack.imgs[id]));
         if (candidates.length > 0) {
           const picked = candidates[Math.floor(Math.random() * candidates.length)];
-          window.__atsTempExpr = picked;
-          if (window.__atsTempExprTimer) clearTimeout(window.__atsTempExprTimer);
-          window.__atsTempExprTimer = setTimeout(() => {
-            window.__atsTempExpr = '';
-            window.__atsTempExprTimer = 0;
-            window.__atsRefreshExpr?.();
-          }, 1600);
+          window.__atsBaseExpr = picked;
           window.__atsRefreshExpr?.();
+          if (typeof window.__atsBridge === 'function') {
+            window.__atsBridge(JSON.stringify({ portrait: { expression: picked } }));
+          }
         }
       }
 
@@ -1091,26 +1179,77 @@ function pageController(payload) {
     document.addEventListener('pointerdown', window.__atsPointerHandler, { capture: true, passive: true });
   }
 
+  function cachePortraitEntry(hash, src, img, hitAlpha) {
+    const cache = window.__atsPortraitCache;
+    if (!cache || !hash) return null;
+    if (!cache.map[hash]) {
+      cache.order.push(hash);
+      while (cache.order.length > 6) {
+        const drop = cache.order.shift();
+        if (drop && drop !== hash) delete cache.map[drop];
+      }
+    }
+    const entry = { src, img, hitAlpha };
+    cache.map[hash] = entry;
+    return entry;
+  }
+
+  function applyPortraitEntry(hash, entry) {
+    if (!imgEl || !entry?.img) return;
+    if (imgEl.dataset.hash !== hash || imgEl.getAttribute('src') !== entry.src) {
+      imgEl.dataset.hash = hash;
+      imgEl.src = entry.src;
+    }
+    ensureHitMapAndTexture(entry.img, hash, entry.hitAlpha);
+  }
+
   let needImage = false;
   if (imgEl) {
     if (!payload.showPortrait) {
+      window.__atsDesiredHash = '';
       imgEl.style.display = 'none';
       imgEl.style.visibility = 'visible';
       if (canvasEl) canvasEl.style.display = 'none';
     } else {
+      const targetHash = payload.imageHash || '';
+      window.__atsDesiredHash = targetHash;
       imgEl.style.display = 'block';
-      const hasSameSrc = imgEl.dataset.hash === (payload.imageHash || '') && !!imgEl.getAttribute('src');
-      if (payload.imageDataUrl && !hasSameSrc) {
-        imgEl.style.visibility = 'visible';
-        if (canvasEl) canvasEl.style.display = 'none';
-        imgEl.dataset.hash = payload.imageHash || '';
-        imgEl.onload = () => ensureHitMapAndTexture(imgEl);
-        imgEl.src = payload.imageDataUrl;
-        if (imgEl.complete) ensureHitMapAndTexture(imgEl);
-      } else if (!hasSameSrc) {
+      const cachedEntry = targetHash ? window.__atsPortraitCache.map[targetHash] : null;
+      if (cachedEntry?.img?.complete && cachedEntry.img.naturalWidth) {
+        applyPortraitEntry(targetHash, cachedEntry);
+      } else if (imgEl.dataset.hash === targetHash && imgEl.getAttribute('src') && imgEl.complete && imgEl.naturalWidth) {
+        const hitAlpha = computeHitAlpha(imgEl);
+        const entry = cachePortraitEntry(targetHash, imgEl.getAttribute('src'), imgEl, hitAlpha);
+        if (entry) applyPortraitEntry(targetHash, entry);
+      } else if (payload.imageDataUrl && targetHash) {
+        if (!window.__atsPendingLoads) window.__atsPendingLoads = {};
+        if (!window.__atsPendingLoads[targetHash]) {
+          window.__atsPendingLoads[targetHash] = true;
+          const dataUrl = payload.imageDataUrl;
+          const loader = new Image();
+          const finalize = () => {
+            delete window.__atsPendingLoads[targetHash];
+            if (!loader.naturalWidth) return;
+            const hitAlpha = computeHitAlpha(loader);
+            const entry = cachePortraitEntry(targetHash, dataUrl, loader, hitAlpha);
+            if (entry && window.__atsDesiredHash === targetHash && window.__atsShowPortrait) {
+              applyPortraitEntry(targetHash, entry);
+            }
+          };
+          loader.src = dataUrl;
+          if (typeof loader.decode === 'function') {
+            loader.decode().then(finalize, () => {
+              if (loader.complete && loader.naturalWidth) finalize();
+              else delete window.__atsPendingLoads[targetHash];
+            });
+          } else {
+            loader.onload = finalize;
+            loader.onerror = () => { delete window.__atsPendingLoads[targetHash]; };
+            if (loader.complete && loader.naturalWidth) finalize();
+          }
+        }
+      } else if (targetHash) {
         needImage = true;
-      } else if (imgEl.complete) {
-        ensureHitMapAndTexture(imgEl);
       }
       kickAnimLoop();
     }
@@ -1518,6 +1657,7 @@ export class ThemeInjector {
   }
 
   _resolveExpressionPack() {
+    const sigParts = [];
     const patches = {};
     const hashParts = [];
     for (const expr of Object.values(BUILTIN_EXPRESSIONS)) {
@@ -1525,11 +1665,18 @@ export class ThemeInjector {
       const fullPath = join(this.assetsDir, expr.file);
       const cached = this._readCachedImage(fullPath);
       if (!cached) continue;
+      sigParts.push(`${expr.id}:${cached.hash}`);
       patches[expr.id] = { dataUrl: cached.dataUrl, x: expr.x ?? 265, y: expr.y ?? 195 };
       hashParts.push(`${expr.id}:${cached.hash}`);
     }
-    const hash = hashParts.length ? createHash('sha1').update(hashParts.join('|')).digest('hex').slice(0, 16) : '';
-    return { hash, patches };
+    const sig = sigParts.join('|');
+    if (this._exprPackCache && this._exprPackCache.sig === sig) {
+      return this._exprPackCache.result;
+    }
+    const hash = hashParts.length ? createHash('sha1').update(sig).digest('hex').slice(0, 16) : '';
+    const result = { hash, patches };
+    this._exprPackCache = { sig, result };
+    return result;
   }
 
   _resolveCustomBgAsset(settings) {
@@ -1554,11 +1701,11 @@ export class ThemeInjector {
   _handleSessionEvent(session, { method, params }) {
     if (method === 'Runtime.executionContextDestroyed' && params?.executionContextId === session.contextId) {
       session.contextId = null;
-      session.sentImageHash = null;
+      session.knownImageHashes?.clear();
       session.sentExprHash = null;
     } else if (method === 'Runtime.executionContextsCleared' || (method === 'Page.frameNavigated' && !params?.frame?.parentId)) {
       session.contextId = null;
-      session.sentImageHash = null;
+      session.knownImageHashes?.clear();
       session.sentExprHash = null;
       session.sentBgHash = null;
     } else if (method === 'Runtime.bindingCalled' && params?.name === '__atsBridge') {
@@ -1566,6 +1713,10 @@ export class ThemeInjector {
         const msg = JSON.parse(params.payload || '{}');
         if (msg?.action === 'pickCustomBg') {
           void this.onPatch?.({ action: 'pickCustomBg' });
+        } else if (msg?.portrait && typeof msg.portrait === 'object') {
+          if (typeof msg.portrait.expression === 'string' && BUILTIN_EXPRESSIONS[msg.portrait.expression]) {
+            void this.onPatch?.({ portrait: { expression: msg.portrait.expression } });
+          }
         } else if (msg?.effects && typeof msg.effects === 'object') {
           const patchEffects = {};
           if (typeof msg.effects.customBgEnabled === 'boolean') patchEffects.customBgEnabled = msg.effects.customBgEnabled;
@@ -1590,7 +1741,9 @@ export class ThemeInjector {
       grantUniveralAccess: false,
     });
     session.contextId = world.executionContextId;
-    session.sentImageHash = null;
+    session.knownImageHashes?.clear();
+    session.sentExprHash = null;
+    session.sentBgHash = null;
   }
 
   async _ensureSession(target) {
@@ -1655,14 +1808,20 @@ export class ThemeInjector {
       for (const session of [...this.sessions.values()]) {
         if (!session.contextId) continue;
         try {
-          if (!settings.enabled || !image.showPortrait) {
-            session.sentImageHash = null;
-            session.sentExprHash = null;
-          }
+          if (!session.knownImageHashes) session.knownImageHashes = new Set();
           if (!settings.enabled || !bgImg.showCustomBg) {
             session.sentBgHash = null;
           }
-          const sendImg = image.showPortrait && session.sentImageHash !== image.hash;
+          const rememberImg = (h) => {
+            if (!h) return;
+            session.knownImageHashes.delete(h);
+            session.knownImageHashes.add(h);
+            while (session.knownImageHashes.size > 6) {
+              const oldest = session.knownImageHashes.values().next().value;
+              session.knownImageHashes.delete(oldest);
+            }
+          };
+          const sendImg = image.showPortrait && !!image.hash && !session.knownImageHashes.has(image.hash);
           const sendExpr = image.showPortrait && image.allowExpression && !!exprPack.hash && session.sentExprHash !== exprPack.hash;
           const sendBg = bgImg.showCustomBg && session.sentBgHash !== bgImg.hash;
           const makePayload = (withPortrait, withExpr, withBg) => ({
@@ -1700,18 +1859,18 @@ export class ThemeInjector {
           const retryExpr = !!(val?.needExprPack && image.showPortrait && image.allowExpression && exprPack.hash && exprPack.patches);
           const retryBg = !!(val?.needBgImage && bgImg.showCustomBg && bgImg.dataUrl);
           if (retryPortrait || retryExpr || retryBg) {
-            if (retryPortrait) session.sentImageHash = null;
+            if (retryPortrait) session.knownImageHashes.delete(image.hash);
             if (retryExpr) session.sentExprHash = null;
             if (retryBg) session.sentBgHash = null;
             res = await this.evalInSession(session, `${PAGE_CONTROLLER_FN}(${JSON.stringify(makePayload(retryPortrait, retryExpr, retryBg))})`);
             val = res?.result?.value;
             if (val?.ok) {
-              if (retryPortrait) session.sentImageHash = image.hash;
+              if (retryPortrait) rememberImg(image.hash);
               if (retryExpr) session.sentExprHash = exprPack.hash;
               if (retryBg) session.sentBgHash = bgImg.hash;
             }
           } else if (val?.ok) {
-            if (sendImg) session.sentImageHash = image.hash;
+            if (sendImg) rememberImg(image.hash);
             if (sendExpr) session.sentExprHash = exprPack.hash;
             if (sendBg) session.sentBgHash = bgImg.hash;
           }
