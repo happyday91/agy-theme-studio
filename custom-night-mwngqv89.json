@@ -1,0 +1,22 @@
+{
+  "id": "custom-night-mwngqv89",
+  "name": "哈基米 · 夜（柔和暮紫慵懒）（导出）",
+  "scheme": "dark",
+  "portraitKey": "night",
+  "palette": {
+    "bgPage": "#3E3158",
+    "bgGradientEnd": "#32264A",
+    "bgSidebar": "#34284D",
+    "bgCard": "#4A3B68",
+    "bgCardUser": "#534375",
+    "bgInput": "#463864",
+    "bgCode": "#2E2344",
+    "foreground": "#F1EBFF",
+    "mutedForeground": "#C4B7E2",
+    "accent": "#B394FF",
+    "accentForeground": "#24183A",
+    "border": "#635189",
+    "selectionBg": "rgba(179, 148, 255, 0.28)",
+    "scrollbarThumb": "rgba(179, 148, 255, 0.36)"
+  }
+}

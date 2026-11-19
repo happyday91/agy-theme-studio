@@ -139,6 +139,12 @@
 - “开启搓头变脸，立绘透明度调到 0.72”
 - “打开 Theme Studio 控制面板”
 
+### 4. 作者亲测自用预设推荐
+
+仓库根目录附带了作者自己日常导出的夜形态主题预设 [custom-night-mwngqv89.json](custom-night-mwngqv89.json)（`哈基米 · 夜（柔和暮紫慵懒）（导出）`）：
+- **亲测体验**：作者长期主力自用配方，整体暮紫对比度柔和不刺眼，白天拉低亮度或深夜爆肝写代码都非常耐看、护眼又合适，搭配夜版慵懒立绘氛围感直接拉满！
+- **一键导入**：在 Theme Studio 面板点击 **「导入预设」**，选中 [custom-night-mwngqv89.json](custom-night-mwngqv89.json) 即可在预设列表中立即启用，也欢迎大家到 [Issue #1 分享楼](https://github.com/happyday91/agy-theme-studio/issues/1) 晒出你的配色配方！
+
 ---
 
 ## 🎉 自由发挥 & 欢迎共创
