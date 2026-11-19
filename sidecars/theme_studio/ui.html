@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Theme Studio</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: var(--background, #f6f3fc);
+      --fg: var(--foreground, #24193d);
+      --muted: var(--muted-foreground, #675b87);
+      --card-bg: var(--card, #ffffff);
+      --border-c: var(--border, rgba(124, 92, 230, 0.24));
+      --accent-c: var(--primary, #7c5ce6);
+      --accent-fg: var(--primary-foreground, #ffffff);
+      --radius: 11px;
+      --pad-y: clamp(6px, 1.15vh, 13px);
+      --pad-x: 12px;
+      --gap: clamp(6px, 1.05vh, 12px);
+      --fs: clamp(11.5px, 1.38vh, 13px);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, -apple-system, sans-serif;
+      font-size: var(--fs);
+      line-height: 1.38;
+    }
+    body {
+      padding: var(--gap);
+      display: flex;
+      flex-direction: column;
+    }
+    body.compact {
+      --pad-y: 5px;
+      --pad-x: 10px;
+      --gap: 5px;
+      --fs: 11px;
+    }
+    .stack {
+      flex: 1 1 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap);
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-c);
+      border-radius: var(--radius);
+      padding: var(--pad-y) var(--pad-x);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-evenly;
+      min-height: 0;
+    }
+    .card.hdr { flex: 0 0 auto; }
+    .card.grow-1 { flex: 1.05 1 0; }
+    .card.grow-2 { flex: 1.65 1 0; }
+    .card.grow-3 { flex: 1.25 1 0; }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .title-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .title { font-size: clamp(13px, 1.55vh, 15px); font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .sub { font-size: clamp(11px, 1.2vh, 12px); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+      background: #9ca3af; display: inline-block;
+    }
+    .dot.ok { background: #34d399; box-shadow: 0 0 6px rgba(52, 211, 153, 0.6); }
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border-c);
+      background: transparent;
+      color: var(--fg);
+      border-radius: 7px;
+      padding: clamp(4px, 0.65vh, 7px) 10px;
+      font-size: clamp(11px, 1.3vh, 12.5px);
+      line-height: 1.25;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.14s ease;
+    }
+    .btn:hover { border-color: var(--accent-c); }
+    .btn.primary {
+      background: var(--accent-c);
+      color: var(--accent-fg);
+      border-color: var(--accent-c);
+    }
+    .btn.danger { color: #ef4444; border-color: rgba(239, 68, 68, 0.35); }
+    .seg {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .seg .btn { padding: clamp(4px, 0.65vh, 7px) 4px; text-align: center; }
+    .seg .btn.active {
+      background: var(--accent-c);
+      color: var(--accent-fg);
+      border-color: var(--accent-c);
+    }
+    .sec-title {
+      font-size: clamp(11.5px, 1.35vh, 13px);
+      font-weight: 600;
+      color: var(--muted);
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .checks-inline {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 400;
+      color: var(--fg);
+      font-size: clamp(11px, 1.25vh, 12px);
+      flex-wrap: wrap;
+    }
+    .checks-inline label {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .checks-inline input[type="checkbox"] { margin: 0; accent-color: var(--accent-c); }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: clamp(5px, 0.8vh, 10px) 10px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: clamp(5px, 0.8vh, 10px) 8px;
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .row label, .field label { font-size: clamp(11px, 1.3vh, 12.5px); flex-shrink: 0; color: var(--fg); }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .slider-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .slider-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: clamp(11px, 1.3vh, 12.5px);
+      gap: 4px;
+    }
+    .slider-head span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .val {
+      font-size: clamp(10.5px, 1.2vh, 12px);
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    input[type="range"] {
+      width: 100%;
+      height: clamp(14px, 1.8vh, 18px);
+      margin: 0;
+      accent-color: var(--accent-c);
+      cursor: pointer;
+    }
+    select, input[type="text"], input[type="number"] {
+      background: transparent;
+      color: var(--fg);
+      border: 1px solid var(--border-c);
+      border-radius: 6px;
+      padding: 3px 7px;
+      font-size: clamp(11px, 1.3vh, 12.5px);
+      min-width: 0;
+      height: clamp(24px, 3vh, 30px);
+    }
+    select { width: 100%; }
+    input[type="text"] { width: 100%; }
+    input[type="number"] { width: 52px; text-align: center; padding: 2px 4px; height: clamp(22px, 2.8vh, 27px); }
+    input[type="color"] {
+      width: 26px; height: clamp(18px, 2.2vh, 22px); border: 1px solid var(--border-c);
+      border-radius: 4px; padding: 0; background: transparent; cursor: pointer; flex-shrink: 0;
+    }
+    .colors-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: clamp(5px, 0.7vh, 8px);
+    }
+    .color-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      padding: clamp(3px, 0.55vh, 6px) 8px;
+      border: 1px solid var(--border-c);
+      border-radius: 7px;
+      font-size: clamp(11px, 1.3vh, 12.5px);
+      min-width: 0;
+    }
+    .color-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .toast {
+      font-size: clamp(11px, 1.25vh, 12px);
+      color: var(--accent-c);
+      margin-left: auto;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="stack" id="main-stack">
+    <section class="card hdr">
+      <div class="header">
+        <div class="title-wrap">
+          <div class="title"><span class="dot" id="conn-dot"></span><span>Antigravity Theme Studio</span></div>
+          <div class="sub" id="status-line">正在连接桌面端…</div>
+        </div>
+        <button class="btn primary" id="toggle-enabled" type="button">已开启美化</button>
+      </div>
+    </section>
+
+    <section class="card grow-1">
+      <div class="sec-title">
+        <span>昼夜形态切换</span>
+        <span id="active-theme-tag"></span>
+      </div>
+      <div class="seg" id="mode-seg">
+        <button class="btn" data-mode="auto-schedule" type="button">定时自动</button>
+        <button class="btn" data-mode="system" type="button">跟随系统</button>
+        <button class="btn" data-mode="manual-day" type="button">锁定昼版</button>
+        <button class="btn" data-mode="manual-night" type="button">锁定夜版</button>
+      </div>
+      <div class="row" id="schedule-row">
+        <label>昼夜时段</label>
+        <div style="display:flex;align-items:center;gap:5px;">
+          <input type="number" id="day-hour" min="0" max="23"><span>时起昼 /</span>
+          <input type="number" id="night-hour" min="0" max="23"><span>时起夜</span>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>昼默认预设</label>
+          <select id="day-preset"></select>
+        </div>
+        <div class="field">
+          <label>夜默认预设</label>
+          <select id="night-preset"></select>
+        </div>
+      </div>
+    </section>
+
+    <section class="card grow-2">
+      <div class="sec-title">
+        <span>右侧背景立绘与动作</span>
+        <div class="checks-inline">
+          <label><input type="checkbox" id="portrait-enabled"> 显示</label>
+          <label><input type="checkbox" id="p-aux-shift"> 左移避让</label>
+          <label><input type="checkbox" id="p-idle-motion"> 呼吸微摆</label>
+          <label><input type="checkbox" id="p-click-bounce"> 点击弹跳</label>
+          <label><input type="checkbox" id="p-flip-x"> 镜像翻转</label>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="slider-cell">
+          <div class="slider-head"><span>常规透明</span><span class="val" id="v-opacity"></span></div>
+          <input type="range" id="p-opacity" min="0" max="1" step="0.02">
+        </div>
+        <div class="slider-cell">
+          <div class="slider-head"><span>避让透明</span><span class="val" id="v-avoid"></span></div>
+          <input type="range" id="p-avoid" min="0" max="1" step="0.02">
+        </div>
+        <div class="slider-cell">
+          <div class="slider-head"><span>呼吸微摆幅度</span><span class="val" id="v-idle-amp"></span></div>
+          <input type="range" id="p-idle-amp" min="0.5" max="2.0" step="0.05">
+        </div>
+        <div class="slider-cell">
+          <div class="slider-head"><span>点击跳动范围</span><span class="val" id="v-bounce-range"></span></div>
+          <input type="range" id="p-bounce-range" min="0.1" max="1.5" step="0.05">
+        </div>
+      </div>
+      <div class="grid-3">
+        <div class="slider-cell">
+          <div class="slider-head"><span>缩放</span><span class="val" id="v-scale"></span></div>
+          <input type="range" id="p-scale" min="0.5" max="1.6" step="0.02">
+        </div>
+        <div class="slider-cell">
+          <div class="slider-head"><span>右边距</span><span class="val" id="v-right"></span></div>
+          <input type="range" id="p-right" min="-220" max="360" step="2">
+        </div>
+        <div class="slider-cell">
+          <div class="slider-head"><span>底边距</span><span class="val" id="v-bottom"></span></div>
+          <input type="range" id="p-bottom" min="-180" max="300" step="2">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label>昼版立绘穿搭</label>
+          <select id="p-day-outfit"></select>
+        </div>
+        <div class="field">
+          <label>夜版立绘穿搭</label>
+          <select id="p-night-outfit"></select>
+        </div>
+      </div>
+    </section>
+
+    <section class="card grow-3">
+      <div class="sec-title">
+        <span>视觉效果与色板微调</span>
+        <div class="checks-inline">
+          <label><input type="checkbox" id="e-custom-bg-on"> 自定义背景</label>
+          <button class="btn" id="btn-pick-bg" type="button" style="padding:2px 7px;">选图</button>
+          <button class="btn" id="btn-clear-bg" type="button" style="padding:2px 6px;">清除</button>
+        </div>
+      </div>
+      <div class="grid-3">
+        <div class="slider-cell">
+          <div class="slider-head"><span>背景图透显</span><span class="val" id="v-bg-op"></span></div>
+          <input type="range" id="e-bg-op" min="0.1" max="1" step="0.02">
+        </div>
+        <div class="slider-cell">
+          <div class="slider-head"><span>输入框不透明</span><span class="val" id="v-glass-op"></span></div>
+          <input type="range" id="e-glass-op" min="0.35" max="1" step="0.02">
+        </div>
+        <div class="slider-cell">
+          <div class="slider-head"><span>圆角大小</span><span class="val" id="v-radius"></span></div>
+          <input type="range" id="e-radius" min="4" max="36" step="1">
+        </div>
+      </div>
+      <div class="row">
+        <label>自定义字体</label>
+        <input type="text" id="e-font" placeholder="如：LXGW WenKai, Microsoft YaHei">
+      </div>
+      <div class="colors-grid">
+        <div class="color-item"><span>画布</span><input type="color" data-color="bgPage"></div>
+        <div class="color-item"><span>卡片</span><input type="color" data-color="bgCard"></div>
+        <div class="color-item"><span>强调</span><input type="color" data-color="accent"></div>
+        <div class="color-item"><span>文字</span><input type="color" data-color="foreground"></div>
+        <div class="color-item"><span>代码</span><input type="color" data-color="bgCode"></div>
+        <div class="color-item"><span>边框</span><input type="color" data-color="border"></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btn-export" type="button">导出预设</button>
+        <button class="btn" id="btn-import" type="button">导入预设</button>
+        <button class="btn danger" id="btn-reset" type="button">恢复默认</button>
+        <span class="toast" id="toast"></span>
+      </div>
+      <input type="file" id="import-file" accept=".json,application/json" hidden>
+    </section>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const token = qs.get('token') || window.sidecar?.token || '';
+    function apiUrl(path) {
+      return token ? `${path}?token=${encodeURIComponent(token)}` : path;
+    }
+    async function apiGet(path) {
+      const res = await fetch(apiUrl(path), { headers: token ? { 'X-Sidecar-Token': token } : {} });
+      return res.json();
+    }
+    async function apiPost(path, body) {
+      const res = await fetch(apiUrl(path), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { 'X-Sidecar-Token': token } : {}) },
+        body: JSON.stringify(body),
+      });
+      return res.json();
+    }
+
+    function fitViewport() {
+      const stack = document.getElementById('main-stack');
+      if (!stack) return;
+      document.body.classList.remove('compact');
+      if (stack.scrollHeight > stack.clientHeight + 2) {
+        document.body.classList.add('compact');
+      }
+    }
+    window.addEventListener('resize', () => requestAnimationFrame(fitViewport), { passive: true });
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => requestAnimationFrame(fitViewport)).observe(document.body);
+    }
+
+    let state = null;
+    const toastEl = document.getElementById('toast');
+    let toastTimer = null;
+    function toast(msg) {
+      toastEl.textContent = msg;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toastEl.textContent = ''; }, 2400);
+    }
+
+    function render(data) {
+      state = data;
+      const s = data.settings;
+      const eff = data.effective;
+      const h = data.health;
+
+      document.getElementById('conn-dot').className = 'dot ' + (h.windows > 0 ? 'ok' : '');
+      let compatNote = '';
+      if (h.windows > 0 && h.compat) {
+        const parts = [];
+        if (h.compat.auxMode === 'geometry') parts.push('几何避让兼容');
+        if (h.compat.adaptedTokens > 0) parts.push(`自适配+${h.compat.adaptedTokens}`);
+        compatNote = parts.length ? ' · ' + parts.join(' ') : ' · 自适应就绪';
+      }
+      document.getElementById('status-line').textContent = h.windows > 0
+        ? `已连接 ${h.windows} 窗口 · ${eff.phase === 'night' ? '夜形态' : '昼形态'}${compatNote}`
+        : '等待连接 Antigravity 主窗口…';
+
+      const toggleBtn = document.getElementById('toggle-enabled');
+      toggleBtn.textContent = s.enabled ? '已开启美化' : '已暂停';
+      toggleBtn.className = 'btn ' + (s.enabled ? 'primary' : '');
+
+      document.getElementById('active-theme-tag').textContent = eff.presetName;
+      for (const b of document.querySelectorAll('#mode-seg .btn')) {
+        b.classList.toggle('active', b.dataset.mode === s.mode);
+      }
+      document.getElementById('schedule-row').style.display = s.mode === 'auto-schedule' ? 'flex' : 'none';
+      document.getElementById('day-hour').value = s.dayStartHour;
+      document.getElementById('night-hour').value = s.nightStartHour;
+
+      const presets = Object.values(data.presets || {});
+      for (const selId of ['day-preset', 'night-preset']) {
+        const sel = document.getElementById(selId);
+        const target = selId === 'day-preset' ? s.dayPresetId : s.nightPresetId;
+        if (sel.options.length !== presets.length) {
+          sel.innerHTML = '';
+          for (const p of presets) {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name;
+            sel.appendChild(opt);
+          }
+        }
+        sel.value = target;
+      }
+
+      document.getElementById('portrait-enabled').checked = s.portrait.enabled;
+      document.getElementById('p-aux-shift').checked = s.portrait.auxShift !== false;
+      document.getElementById('p-idle-motion').checked = s.portrait.idleMotion !== false;
+      document.getElementById('p-click-bounce').checked = s.portrait.clickBounce !== false;
+      document.getElementById('p-flip-x').checked = s.portrait.flipX === true;
+
+      document.getElementById('p-opacity').value = s.portrait.opacity;
+      document.getElementById('v-opacity').textContent = Math.round(s.portrait.opacity * 100) + '%';
+      document.getElementById('p-avoid').value = s.portrait.auxAvoidOpacity;
+      document.getElementById('v-avoid').textContent = Math.round(s.portrait.auxAvoidOpacity * 100) + '%';
+      const idleAmp = s.portrait.idleMotionAmp ?? 0.75;
+      document.getElementById('p-idle-amp').value = idleAmp;
+      document.getElementById('v-idle-amp').textContent = Math.round(idleAmp * 100) + '%';
+      const bRange = s.portrait.clickBounceRange ?? 0.45;
+      document.getElementById('p-bounce-range').value = bRange;
+      document.getElementById('v-bounce-range').textContent = Math.round(bRange * 100) + '%';
+      document.getElementById('p-scale').value = s.portrait.scale;
+      document.getElementById('v-scale').textContent = s.portrait.scale.toFixed(2) + 'x';
+      document.getElementById('p-right').value = s.portrait.offsetRight;
+      document.getElementById('v-right').textContent = s.portrait.offsetRight + 'px';
+      document.getElementById('p-bottom').value = s.portrait.offsetBottom;
+      document.getElementById('v-bottom').textContent = s.portrait.offsetBottom + 'px';
+
+      const portraits = Object.values(data.portraits || {});
+      for (const [selId, target] of [
+        ['p-day-outfit', s.portrait.dayOutfit || 'day'],
+        ['p-night-outfit', s.portrait.nightOutfit || 'night'],
+      ]) {
+        const sel = document.getElementById(selId);
+        if (sel.options.length !== portraits.length) {
+          sel.innerHTML = '';
+          for (const po of portraits) {
+            const opt = document.createElement('option');
+            opt.value = po.id;
+            opt.textContent = po.name;
+            sel.appendChild(opt);
+          }
+        }
+        sel.value = target;
+      }
+
+      const hasBgPath = !!(s.effects.customBgImage && s.effects.customBgImage.trim());
+      const bgOnEl = document.getElementById('e-custom-bg-on');
+      bgOnEl.checked = !!(s.effects.customBgEnabled && hasBgPath);
+      bgOnEl.disabled = !hasBgPath;
+      document.getElementById('btn-clear-bg').style.display = hasBgPath ? 'inline-block' : 'none';
+      const bgOp = s.effects.customBgOpacity ?? 0.48;
+      document.getElementById('e-bg-op').value = bgOp;
+      document.getElementById('v-bg-op').textContent = Math.round(bgOp * 100) + '%';
+      document.getElementById('e-glass-op').value = s.effects.glassOpacity;
+      document.getElementById('v-glass-op').textContent = Math.round(s.effects.glassOpacity * 100) + '%';
+      document.getElementById('e-radius').value = s.effects.borderRadius;
+      document.getElementById('v-radius').textContent = s.effects.borderRadius + 'px';
+      if (document.activeElement.id !== 'e-font') document.getElementById('e-font').value = s.effects.fontFamily || '';
+
+      for (const inp of document.querySelectorAll('input[data-color]')) {
+        const key = inp.dataset.color;
+        if (eff.palette[key] && /^#[0-9a-f]{6}$/i.test(eff.palette[key])) {
+          inp.value = eff.palette[key];
+        }
+      }
+      requestAnimationFrame(fitViewport);
+    }
+
+    async function patch(body) {
+      const next = await apiPost('/api/settings', body);
+      render(next);
+    }
+
+    document.getElementById('toggle-enabled').addEventListener('click', () => {
+      if (state) void patch({ enabled: !state.settings.enabled });
+    });
+    for (const b of document.querySelectorAll('#mode-seg .btn')) {
+      b.addEventListener('click', () => void patch({ mode: b.dataset.mode }));
+    }
+    document.getElementById('day-hour').addEventListener('change', (e) => void patch({ dayStartHour: Number(e.target.value) }));
+    document.getElementById('night-hour').addEventListener('change', (e) => void patch({ nightStartHour: Number(e.target.value) }));
+    document.getElementById('day-preset').addEventListener('change', (e) => void patch({ dayPresetId: e.target.value }));
+    document.getElementById('night-preset').addEventListener('change', (e) => void patch({ nightPresetId: e.target.value }));
+
+    document.getElementById('portrait-enabled').addEventListener('change', (e) => void patch({ portrait: { enabled: e.target.checked } }));
+    document.getElementById('p-aux-shift').addEventListener('change', (e) => void patch({ portrait: { auxShift: e.target.checked } }));
+    document.getElementById('p-idle-motion').addEventListener('change', (e) => void patch({ portrait: { idleMotion: e.target.checked } }));
+    document.getElementById('p-click-bounce').addEventListener('change', (e) => void patch({ portrait: { clickBounce: e.target.checked } }));
+    document.getElementById('p-flip-x').addEventListener('change', (e) => void patch({ portrait: { flipX: e.target.checked } }));
+    document.getElementById('p-opacity').addEventListener('input', (e) => void patch({ portrait: { opacity: Number(e.target.value) } }));
+    document.getElementById('p-avoid').addEventListener('input', (e) => void patch({ portrait: { auxAvoidOpacity: Number(e.target.value) } }));
+    document.getElementById('p-idle-amp').addEventListener('input', (e) => void patch({ portrait: { idleMotionAmp: Number(e.target.value) } }));
+    document.getElementById('p-bounce-range').addEventListener('input', (e) => void patch({ portrait: { clickBounceRange: Number(e.target.value) } }));
+    document.getElementById('p-scale').addEventListener('input', (e) => void patch({ portrait: { scale: Number(e.target.value) } }));
+    document.getElementById('p-right').addEventListener('input', (e) => void patch({ portrait: { offsetRight: Number(e.target.value) } }));
+    document.getElementById('p-bottom').addEventListener('input', (e) => void patch({ portrait: { offsetBottom: Number(e.target.value) } }));
+    document.getElementById('p-day-outfit').addEventListener('change', (e) => void patch({ portrait: { dayOutfit: e.target.value } }));
+    document.getElementById('p-night-outfit').addEventListener('change', (e) => void patch({ portrait: { nightOutfit: e.target.value } }));
+
+    document.getElementById('e-custom-bg-on').addEventListener('change', (e) => void patch({ effects: { customBgEnabled: e.target.checked } }));
+    document.getElementById('btn-pick-bg').addEventListener('click', async () => {
+      const next = await apiPost('/api/pick-bg', {});
+      render(next);
+      if (next?.canceled) toast('已取消选图');
+      else if (next?.settings?.effects?.customBgImage) toast('已更换全局自定义背景');
+    });
+    document.getElementById('btn-clear-bg').addEventListener('click', () => {
+      void patch({ effects: { customBgEnabled: false, customBgImage: '' } });
+      toast('已清除自定义背景图');
+    });
+    document.getElementById('e-bg-op').addEventListener('input', (e) => void patch({ effects: { customBgOpacity: Number(e.target.value) } }));
+    document.getElementById('e-glass-op').addEventListener('input', (e) => void patch({ effects: { glassOpacity: Number(e.target.value) } }));
+    document.getElementById('e-radius').addEventListener('input', (e) => void patch({ effects: { borderRadius: Number(e.target.value) } }));
+    document.getElementById('e-font').addEventListener('change', (e) => void patch({ effects: { fontFamily: e.target.value.trim() } }));
+
+    for (const inp of document.querySelectorAll('input[data-color]')) {
+      inp.addEventListener('change', (e) => {
+        if (!state) return;
+        const presetId = state.effective.presetId;
+        void patch({ paletteOverrides: { [presetId]: { [inp.dataset.color]: e.target.value } } });
+      });
+    }
+
+    document.getElementById('btn-export').addEventListener('click', async () => {
+      if (!state) return;
+      const eff = state.effective;
+      const preset = {
+        id: 'custom-' + eff.phase + '-' + Date.now().toString(36),
+        name: eff.presetName + '（导出）',
+        scheme: eff.scheme,
+        portraitKey: eff.portraitKey,
+        palette: eff.palette,
+      };
+      const jsonText = JSON.stringify(preset, null, 2);
+
+      if (typeof window.showSaveFilePicker === 'function') {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: `${preset.id}.json`,
+            types: [{ description: 'JSON 主题预设', accept: { 'application/json': ['.json'] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(jsonText);
+          await writable.close();
+          toast(`已导出：${handle.name}`);
+          return;
+        } catch (err) {
+          if (err?.name === 'AbortError') {
+            toast('已取消导出');
+            return;
+          }
+          // iframe 权限受限时回退由桌面端 Sidecar 弹出原生保存对话框
+        }
+      }
+
+      try {
+        const res = await apiPost('/api/export-preset', { preset });
+        if (res?.canceled) {
+          toast('已取消导出');
+        } else if (res?.ok && res.path) {
+          toast(`已导出至：${res.path}`);
+        } else {
+          toast('导出失败：' + (res?.error || '未知错误'));
+        }
+      } catch (err) {
+        toast('导出失败：' + err.message);
+      }
+    });
+
+    document.getElementById('btn-import').addEventListener('click', () => document.getElementById('import-file').click());
+    document.getElementById('import-file').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const preset = JSON.parse(await file.text());
+        if (!preset?.id || !preset?.palette) throw new Error('无效预设格式');
+        await patch({ customPresets: { [preset.id]: preset } });
+        toast(`已导入：${preset.name || preset.id}`);
+      } catch (err) {
+        toast('导入失败：' + err.message);
+      }
+      e.target.value = '';
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', async () => {
+      const res = await apiPost('/api/reset', {});
+      render(res);
+      toast('已恢复默认');
+    });
+
+    async function refresh() {
+      try {
+        render(await apiGet('/api/state'));
+      } catch {}
+    }
+    void refresh();
+    setInterval(refresh, 4000);
+  </script>
+</body>
+</html>
