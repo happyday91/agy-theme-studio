@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
-import { BUILTIN_PORTRAITS, BUILTIN_PRESETS, DEFAULT_SETTINGS } from './presets.mjs';
+import { BUILTIN_EXPRESSIONS, BUILTIN_PORTRAITS, BUILTIN_PRESETS, DEFAULT_SETTINGS } from './presets.mjs';
 
 export function resolveDataDir() {
   if (process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR) {
@@ -48,6 +48,7 @@ export function normalizeSettings(raw) {
   merged.portrait.idleMotionAmp = clampNum(merged.portrait.idleMotionAmp, 0.5, 2.0, 0.75);
   merged.portrait.clickBounce = merged.portrait.clickBounce !== false;
   merged.portrait.clickBounceRange = clampNum(merged.portrait.clickBounceRange, 0.1, 1.5, 0.45);
+  merged.portrait.clickExpression = merged.portrait.clickExpression !== false;
   merged.portrait.flipX = merged.portrait.flipX === true;
   merged.portrait.scale = clampNum(merged.portrait.scale, 0.5, 1.6, 1.0);
   merged.portrait.offsetRight = clampNum(merged.portrait.offsetRight, -240, 480, 28);
@@ -56,6 +57,7 @@ export function normalizeSettings(raw) {
   merged.portrait.featherBottom = clampNum(merged.portrait.featherBottom, 0, 45, 12);
   if (!BUILTIN_PORTRAITS[merged.portrait.dayOutfit]) merged.portrait.dayOutfit = 'day';
   if (!BUILTIN_PORTRAITS[merged.portrait.nightOutfit]) merged.portrait.nightOutfit = 'night';
+  if (!BUILTIN_EXPRESSIONS[merged.portrait.expression]) merged.portrait.expression = 'default';
 
   merged.effects.glassBlur = 13;
   merged.effects.glassOpacity = clampNum(merged.effects.glassOpacity, 0.25, 1, 0.78);

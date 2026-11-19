@@ -4,7 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, join } from 'node:path';
-import { BUILTIN_PORTRAITS } from './presets.mjs';
+import { BUILTIN_EXPRESSIONS, BUILTIN_PORTRAITS } from './presets.mjs';
 
 const WORLD_NAME = 'agy-theme-studio';
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -652,6 +652,47 @@ function pageController(payload) {
   window.__atsIdleAmp = payload.idleMotion !== false ? Math.min(2.0, Math.max(0.5, Number(payload.idleMotionAmp ?? 0.75))) : 0;
   window.__atsFlipX = payload.flipX === true;
   window.__atsShowPortrait = !!payload.showPortrait;
+  window.__atsAllowExpr = !!payload.allowExpression;
+  window.__atsClickExpr = payload.clickExpression !== false;
+  window.__atsExprOffsetX = Number.isFinite(Number(payload.exprOffsetX)) ? Number(payload.exprOffsetX) : 0;
+  const nextBaseExpr = typeof payload.expression === 'string' && payload.expression ? payload.expression : 'default';
+  if (window.__atsBaseExpr !== nextBaseExpr) {
+    window.__atsBaseExpr = nextBaseExpr;
+    window.__atsTempExpr = '';
+    if (window.__atsTempExprTimer) {
+      clearTimeout(window.__atsTempExprTimer);
+      window.__atsTempExprTimer = 0;
+    }
+  }
+
+  if (!window.__atsExprPack) {
+    window.__atsExprPack = { hash: '', imgs: {} };
+  }
+  let needExprPack = false;
+  if (window.__atsShowPortrait && window.__atsAllowExpr && payload.exprPackHash) {
+    const sameExprPack = window.__atsExprPack.hash === payload.exprPackHash && Object.keys(window.__atsExprPack.imgs).length > 0;
+    if (payload.exprPack && !sameExprPack) {
+      const nextImgs = {};
+      for (const [eid, entry] of Object.entries(payload.exprPack)) {
+        if (!entry?.dataUrl) continue;
+        const pImg = new Image();
+        pImg.onload = () => {
+          const curImg = document.getElementById('agy-theme-studio-portrait');
+          if (curImg) ensureHitMapAndTexture(curImg);
+        };
+        pImg.src = entry.dataUrl;
+        nextImgs[eid] = { img: pImg, x: Number(entry.x || 0), y: Number(entry.y || 0) };
+      }
+      window.__atsExprPack = { hash: payload.exprPackHash, imgs: nextImgs };
+    } else if (!sameExprPack) {
+      needExprPack = true;
+    }
+  }
+
+  function getEffectiveExpr() {
+    if (!window.__atsAllowExpr) return 'default';
+    return window.__atsTempExpr || window.__atsBaseExpr || 'default';
+  }
 
   if (!window.__atsBounce) {
     window.__atsBounce = {
@@ -663,6 +704,8 @@ function pageController(payload) {
       prog: null,
       tex: null,
       texHash: '',
+      texKey: '',
+      compCanvas: null,
       indexCount: 0,
       uAspect: null,
       uTime: null,
@@ -678,9 +721,13 @@ function pageController(payload) {
   function kickAnimLoop() {
     const st = window.__atsBounce;
     if (!st || !imgEl || document.hidden || !window.__atsShowPortrait) return;
+    const needStaticExpr = st.gl && getEffectiveExpr() !== 'default';
     const needAnim = st.gl && (window.__atsIdleAmp > 0 || st.impulses.length > 0);
-    if (needAnim && !window.__atsBounceRaf) {
+    if ((needAnim || needStaticExpr) && !window.__atsBounceRaf) {
       window.__atsBounceRaf = requestAnimationFrame(renderFrame);
+    } else if (!needAnim && !needStaticExpr && canvasEl) {
+      imgEl.style.visibility = 'visible';
+      canvasEl.style.display = 'none';
     }
   }
 
@@ -825,11 +872,32 @@ function pageController(payload) {
           st.tex = gl.createTexture();
         }
       }
-      if (st.gl && st.texHash !== hash) {
+      const targetExpr = getEffectiveExpr();
+      const exprEntry = targetExpr !== 'default' ? window.__atsExprPack?.imgs?.[targetExpr] : null;
+      const canUseExpr = !!(exprEntry?.img && exprEntry.img.complete && exprEntry.img.naturalWidth > 0);
+      const actualExpr = canUseExpr ? targetExpr : 'default';
+      const offsetX = window.__atsExprOffsetX || 0;
+      const nextTexKey = `${hash}|${actualExpr}|${offsetX}`;
+      if (st.gl && st.texKey !== nextTexKey) {
         const gl = st.gl;
-        canvasEl.width = img.naturalWidth;
-        canvasEl.height = img.naturalHeight;
-        gl.viewport(0, 0, canvasEl.width, canvasEl.height);
+        if (canvasEl.width !== img.naturalWidth || canvasEl.height !== img.naturalHeight || st.texHash !== hash) {
+          canvasEl.width = img.naturalWidth;
+          canvasEl.height = img.naturalHeight;
+          gl.viewport(0, 0, canvasEl.width, canvasEl.height);
+        }
+        let texSource = img;
+        if (canUseExpr) {
+          if (!st.compCanvas) st.compCanvas = document.createElement('canvas');
+          if (st.compCanvas.width !== img.naturalWidth || st.compCanvas.height !== img.naturalHeight) {
+            st.compCanvas.width = img.naturalWidth;
+            st.compCanvas.height = img.naturalHeight;
+          }
+          const cctx = st.compCanvas.getContext('2d');
+          cctx.clearRect(0, 0, st.compCanvas.width, st.compCanvas.height);
+          cctx.drawImage(img, 0, 0);
+          cctx.drawImage(exprEntry.img, exprEntry.x + offsetX, exprEntry.y);
+          texSource = st.compCanvas;
+        }
         gl.bindTexture(gl.TEXTURE_2D, st.tex);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
         gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
@@ -837,8 +905,9 @@ function pageController(payload) {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texSource);
         st.texHash = hash;
+        st.texKey = nextTexKey;
       }
     }
     kickAnimLoop();
@@ -854,10 +923,32 @@ function pageController(payload) {
     st.impulses = st.impulses.filter((item) => now - item.t0 < 950);
     const hasImpulses = st.impulses.length > 0;
     const idleAmp = window.__atsIdleAmp || 0;
+    const activeExpr = getEffectiveExpr();
 
-    if (document.hidden || !window.__atsShowPortrait || (!hasImpulses && idleAmp <= 0)) {
+    if (document.hidden || !window.__atsShowPortrait) {
       imgEl.style.visibility = 'visible';
       if (canvasEl) canvasEl.style.display = 'none';
+      window.__atsBounceRaf = 0;
+      return;
+    }
+
+    if (!hasImpulses && idleAmp <= 0) {
+      if (activeExpr !== 'default' && st.gl && canvasEl && st.texHash === (imgEl.dataset.hash || '')) {
+        const gl = st.gl;
+        gl.useProgram(st.prog);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.uniform1f(st.uAspect, st.aspect);
+        gl.uniform1f(st.uTime, now / 1000);
+        gl.uniform1f(st.uIdle, 0);
+        gl.uniform1i(st.uCount, 0);
+        gl.drawElements(gl.TRIANGLES, st.indexCount, gl.UNSIGNED_SHORT, 0);
+        canvasEl.style.display = 'block';
+        imgEl.style.visibility = 'hidden';
+      } else {
+        imgEl.style.visibility = 'visible';
+        if (canvasEl) canvasEl.style.display = 'none';
+      }
       window.__atsBounceRaf = 0;
       return;
     }
@@ -924,9 +1015,15 @@ function pageController(payload) {
     return false;
   }
 
+  window.__atsRefreshExpr = () => {
+    if (imgEl && imgEl.complete && imgEl.naturalWidth) ensureHitMapAndTexture(imgEl);
+  };
+
   if (!window.__atsPointerHandler) {
     window.__atsPointerHandler = (e) => {
-      if (!window.__atsClickBounce || !window.__atsShowPortrait) return;
+      const canBounce = !!window.__atsClickBounce;
+      const canPokeExpr = !!(window.__atsAllowExpr && window.__atsClickExpr);
+      if ((!canBounce && !canPokeExpr) || !window.__atsShowPortrait) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       const target = e.target;
       if (target && target.closest && target.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"], #hagemi-pet-root')) {
@@ -942,11 +1039,32 @@ function pageController(payload) {
       const rawUx = (e.clientX - rect.left) / rect.width;
       const ux = window.__atsFlipX ? 1.0 - rawUx : rawUx;
       const uy = (e.clientY - rect.top) / rect.height;
-      ensureHitMapAndTexture(pImg);
+      window.__atsRefreshExpr?.();
       if (!isOpaqueAt(ux, uy)) return;
 
       const st = window.__atsBounce;
       if (!st) return;
+
+      if (canPokeExpr && window.__atsExprPack?.imgs) {
+        const curExpr = window.__atsTempExpr || window.__atsBaseExpr || 'default';
+        const pool = uy < 0.30
+          ? ['shy', 'wink', 'starry']
+          : (curExpr === 'sleepy' ? ['starry', 'shy', 'wink'] : ['shy', 'wink', 'smug', 'starry']);
+        const candidates = pool.filter((id) => id !== curExpr && window.__atsExprPack.imgs[id]);
+        if (candidates.length > 0) {
+          const picked = candidates[Math.floor(Math.random() * candidates.length)];
+          window.__atsTempExpr = picked;
+          if (window.__atsTempExprTimer) clearTimeout(window.__atsTempExprTimer);
+          window.__atsTempExprTimer = setTimeout(() => {
+            window.__atsTempExpr = '';
+            window.__atsTempExprTimer = 0;
+            window.__atsRefreshExpr?.();
+          }, 1600);
+          window.__atsRefreshExpr?.();
+        }
+      }
+
+      if (!canBounce) return;
       const range = Math.min(1.5, Math.max(0.1, Number(window.__atsBounceRange ?? 0.45)));
       if (st.gl) {
         if (st.impulses.length >= 6) st.impulses.shift();
@@ -1316,6 +1434,7 @@ function pageController(payload) {
     ok: true,
     state: 'applied',
     needImage,
+    needExprPack,
     needBgImage,
     systemDark: window.matchMedia('(prefers-color-scheme: dark)').matches,
     compat: { ...envCompat, auxMode: lastAuxMode },
@@ -1382,15 +1501,35 @@ export class ThemeInjector {
   }
 
   _resolveImageAsset(theme, settings) {
-    if (!settings.portrait.enabled) return { showPortrait: false, hash: '', dataUrl: null };
+    if (!settings.portrait.enabled) {
+      return { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprOffsetX: 0 };
+    }
     const isNight = theme.portraitKey === 'night';
     const customPath = isNight ? settings.portrait.customNightImage : settings.portrait.customDayImage;
     const outfitKey = isNight ? settings.portrait.nightOutfit : settings.portrait.dayOutfit;
     const outfit = BUILTIN_PORTRAITS[outfitKey] || BUILTIN_PORTRAITS[isNight ? 'night' : 'day'];
     const defaultPath = join(this.assetsDir, outfit.file);
-    const chosen = customPath && existsSync(customPath) ? customPath : defaultPath;
+    const isCustom = !!(customPath && existsSync(customPath));
+    const chosen = isCustom ? customPath : defaultPath;
     const img = this._readCachedImage(chosen);
-    return img ? { showPortrait: true, ...img } : { showPortrait: false, hash: '', dataUrl: null };
+    return img
+      ? { showPortrait: true, ...img, allowExpression: !isCustom, exprOffsetX: !isCustom && outfit.id === 'bunny' ? -1 : 0 }
+      : { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprOffsetX: 0 };
+  }
+
+  _resolveExpressionPack() {
+    const patches = {};
+    const hashParts = [];
+    for (const expr of Object.values(BUILTIN_EXPRESSIONS)) {
+      if (!expr.file) continue;
+      const fullPath = join(this.assetsDir, expr.file);
+      const cached = this._readCachedImage(fullPath);
+      if (!cached) continue;
+      patches[expr.id] = { dataUrl: cached.dataUrl, x: expr.x ?? 265, y: expr.y ?? 195 };
+      hashParts.push(`${expr.id}:${cached.hash}`);
+    }
+    const hash = hashParts.length ? createHash('sha1').update(hashParts.join('|')).digest('hex').slice(0, 16) : '';
+    return { hash, patches };
   }
 
   _resolveCustomBgAsset(settings) {
@@ -1416,9 +1555,11 @@ export class ThemeInjector {
     if (method === 'Runtime.executionContextDestroyed' && params?.executionContextId === session.contextId) {
       session.contextId = null;
       session.sentImageHash = null;
+      session.sentExprHash = null;
     } else if (method === 'Runtime.executionContextsCleared' || (method === 'Page.frameNavigated' && !params?.frame?.parentId)) {
       session.contextId = null;
       session.sentImageHash = null;
+      session.sentExprHash = null;
       session.sentBgHash = null;
     } else if (method === 'Runtime.bindingCalled' && params?.name === '__atsBridge') {
       try {
@@ -1506,7 +1647,8 @@ export class ThemeInjector {
     const run = async () => {
       const settings = this.getSettings();
       const theme = this.resolveTheme(settings, { systemDark: this.health.systemDark });
-      const image = settings.enabled ? this._resolveImageAsset(theme, settings) : { showPortrait: false, hash: '', dataUrl: null };
+      const image = settings.enabled ? this._resolveImageAsset(theme, settings) : { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprOffsetX: 0 };
+      const exprPack = settings.enabled && image.showPortrait && image.allowExpression ? this._resolveExpressionPack() : { hash: '', patches: null };
       const bgImg = settings.enabled ? this._resolveCustomBgAsset(settings) : { showCustomBg: false, hasSavedBg: false, hash: '', dataUrl: null };
       const css = settings.enabled ? buildThemeCss(theme, settings, bgImg.showCustomBg) : '';
 
@@ -1515,13 +1657,15 @@ export class ThemeInjector {
         try {
           if (!settings.enabled || !image.showPortrait) {
             session.sentImageHash = null;
+            session.sentExprHash = null;
           }
           if (!settings.enabled || !bgImg.showCustomBg) {
             session.sentBgHash = null;
           }
           const sendImg = image.showPortrait && session.sentImageHash !== image.hash;
+          const sendExpr = image.showPortrait && image.allowExpression && !!exprPack.hash && session.sentExprHash !== exprPack.hash;
           const sendBg = bgImg.showCustomBg && session.sentBgHash !== bgImg.hash;
-          const makePayload = (withPortrait, withBg) => ({
+          const makePayload = (withPortrait, withExpr, withBg) => ({
             enabled: settings.enabled,
             phase: theme.phase,
             palette: theme.palette,
@@ -1532,6 +1676,12 @@ export class ThemeInjector {
             idleMotionAmp: settings.portrait.idleMotionAmp ?? 0.75,
             clickBounce: settings.portrait.clickBounce !== false,
             clickBounceRange: settings.portrait.clickBounceRange ?? 0.45,
+            clickExpression: settings.portrait.clickExpression !== false,
+            expression: settings.portrait.expression || 'default',
+            allowExpression: !!image.allowExpression,
+            exprOffsetX: image.exprOffsetX || 0,
+            exprPackHash: exprPack.hash,
+            exprPack: withExpr ? exprPack.patches : null,
             flipX: settings.portrait.flipX === true,
             imageHash: image.hash,
             imageDataUrl: withPortrait ? image.dataUrl : null,
@@ -1541,24 +1691,28 @@ export class ThemeInjector {
             bgHash: bgImg.hash,
             bgDataUrl: withBg ? bgImg.dataUrl : null,
           });
-          let res = await this.evalInSession(session, `${PAGE_CONTROLLER_FN}(${JSON.stringify(makePayload(sendImg, sendBg))})`);
+          let res = await this.evalInSession(session, `${PAGE_CONTROLLER_FN}(${JSON.stringify(makePayload(sendImg, sendExpr, sendBg))})`);
           if (res?.exceptionDetails) {
             this.log(`page eval error: ${res.exceptionDetails.text || res.exceptionDetails.exception?.description || 'unknown'}`);
           }
           let val = res?.result?.value;
           const retryPortrait = !!(val?.needImage && image.showPortrait && image.dataUrl);
+          const retryExpr = !!(val?.needExprPack && image.showPortrait && image.allowExpression && exprPack.hash && exprPack.patches);
           const retryBg = !!(val?.needBgImage && bgImg.showCustomBg && bgImg.dataUrl);
-          if (retryPortrait || retryBg) {
+          if (retryPortrait || retryExpr || retryBg) {
             if (retryPortrait) session.sentImageHash = null;
+            if (retryExpr) session.sentExprHash = null;
             if (retryBg) session.sentBgHash = null;
-            res = await this.evalInSession(session, `${PAGE_CONTROLLER_FN}(${JSON.stringify(makePayload(retryPortrait, retryBg))})`);
+            res = await this.evalInSession(session, `${PAGE_CONTROLLER_FN}(${JSON.stringify(makePayload(retryPortrait, retryExpr, retryBg))})`);
             val = res?.result?.value;
             if (val?.ok) {
               if (retryPortrait) session.sentImageHash = image.hash;
+              if (retryExpr) session.sentExprHash = exprPack.hash;
               if (retryBg) session.sentBgHash = bgImg.hash;
             }
           } else if (val?.ok) {
             if (sendImg) session.sentImageHash = image.hash;
+            if (sendExpr) session.sentExprHash = exprPack.hash;
             if (sendBg) session.sentBgHash = bgImg.hash;
           }
           if (typeof val?.systemDark === 'boolean') {

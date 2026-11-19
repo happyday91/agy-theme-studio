@@ -96,6 +96,15 @@ export const BUILTIN_PORTRAITS = {
   bunny: { id: 'bunny', name: '白色花边兔女郎（昼夜通用）', file: 'hagemi_bunny.png' },
 };
 
+export const BUILTIN_EXPRESSIONS = {
+  default: { id: 'default', name: '元气招牌', emoji: '✨', desc: '原版默认神态（昼版微笑 / 夜版慵懒）', file: null, x: 265, y: 195 },
+  wink: { id: 'wink', name: '俏皮Wink', emoji: '😉', desc: '月牙眨眼 + 小虎牙调皮营业', file: 'expressions/wink.png', x: 265, y: 195 },
+  smug: { id: 'smug', name: '得意猫嘴', emoji: '😼', desc: '区区 Bug 早被我看穿了哼', file: 'expressions/smug.png', x: 265, y: 195 },
+  shy: { id: 'shy', name: '害羞脸红', emoji: '😳', desc: '别、别一直盯着我看啦！', file: 'expressions/shy.png', x: 265, y: 195 },
+  sleepy: { id: 'sleepy', name: '困倦打盹', emoji: '🥱', desc: '深夜爆肝陪肝摸鱼模式', file: 'expressions/sleepy.png', x: 265, y: 195 },
+  starry: { id: 'starry', name: '星星眼', emoji: '🤩', desc: '一次编译零报错的惊喜瞬间', file: 'expressions/starry.png', x: 265, y: 195 },
+};
+
 export const DEFAULT_SETTINGS = {
   enabled: true,
   // auto-schedule | system | manual-day | manual-night
@@ -115,6 +124,7 @@ export const DEFAULT_SETTINGS = {
     idleMotionAmp: 0.75,
     clickBounce: true,
     clickBounceRange: 0.45,
+    clickExpression: true,
     flipX: false,
     scale: 1.0,
     offsetRight: 28,
@@ -123,6 +133,7 @@ export const DEFAULT_SETTINGS = {
     featherBottom: 12,
     dayOutfit: 'day',
     nightOutfit: 'night',
+    expression: 'default',
     customDayImage: '',
     customNightImage: '',
   },

@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUILTIN_PORTRAITS, BUILTIN_PRESETS, DEFAULT_SETTINGS } from './presets.mjs';
+import { BUILTIN_EXPRESSIONS, BUILTIN_PORTRAITS, BUILTIN_PRESETS, DEFAULT_SETTINGS } from './presets.mjs';
 import { normalizeSettings, resolveEffectiveTheme } from './settings.mjs';
 import { ThemeInjector, pageController } from './cdp-injector.mjs';
 
@@ -13,7 +13,7 @@ const ASSETS = resolve(HERE, '..', '..', 'assets');
 const compiled = new Function(`return (${pageController.toString()})`);
 if (typeof compiled() !== 'function') throw new Error('pageController serialization failed');
 
-// 2. 验证三套立绘均存在且能生成哈希与 Data URL
+// 2. 验证三套立绘与六种表情差分均存在且能生成哈希与 Data URL
 const inj = new ThemeInjector({
   assetsDir: ASSETS,
   getSettings: () => DEFAULT_SETTINGS,
@@ -29,7 +29,30 @@ for (const outfitId of Object.keys(BUILTIN_PORTRAITS)) {
     if (!asset.showPortrait || !asset.hash || !asset.dataUrl?.startsWith('data:image/')) {
       throw new Error(`Invalid resolved asset for ${phase}/${outfitId}`);
     }
+    if (!asset.allowExpression) {
+      throw new Error(`Expected builtin outfit ${outfitId} to allow expressions`);
+    }
   }
+}
+
+const exprIds = Object.keys(BUILTIN_EXPRESSIONS);
+if (exprIds.length !== 6) throw new Error(`Expected 6 expressions, got ${exprIds.length}`);
+const exprPack = inj._resolveExpressionPack();
+if (!exprPack.hash) throw new Error('Missing expression pack hash');
+for (const exprId of exprIds) {
+  const expr = BUILTIN_EXPRESSIONS[exprId];
+  if (expr.file) {
+    const file = join(ASSETS, expr.file);
+    if (!existsSync(file)) throw new Error(`Missing expression asset: ${file}`);
+    if (!exprPack.patches?.[exprId]?.dataUrl?.startsWith('data:image/png;base64,')) {
+      throw new Error(`Invalid resolved expression patch for ${exprId}`);
+    }
+  }
+  const s = normalizeSettings({ portrait: { expression: exprId } });
+  if (s.portrait.expression !== exprId) throw new Error(`normalizeSettings rejected expression ${exprId}`);
+}
+if (normalizeSettings({ portrait: { expression: 'nonexistent' } }).portrait.expression !== 'default') {
+  throw new Error('normalizeSettings did not fallback invalid expression to default');
 }
 
 // 3. 验证全部内置预设解析正常
@@ -42,5 +65,6 @@ for (const presetId of Object.keys(BUILTIN_PRESETS)) {
 console.log('self-check OK:', {
   presets: Object.keys(BUILTIN_PRESETS).length,
   portraits: Object.keys(BUILTIN_PORTRAITS).length,
+  expressions: exprIds.length,
   controllerBytes: pageController.toString().length,
 });

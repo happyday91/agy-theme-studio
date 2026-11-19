@@ -50,12 +50,14 @@ if (cmd === 'status') {
   if (f.idleMotionAmp !== undefined) portrait.idleMotionAmp = Number(f.idleMotionAmp);
   if (f.clickBounce !== undefined) portrait.clickBounce = f.clickBounce === 'true';
   if (f.clickBounceRange !== undefined) portrait.clickBounceRange = Number(f.clickBounceRange);
+  if (f.clickExpression !== undefined) portrait.clickExpression = f.clickExpression === 'true';
   if (f.flipX !== undefined) portrait.flipX = f.flipX === 'true';
   if (f.scale !== undefined) portrait.scale = Number(f.scale);
   if (f.right !== undefined) portrait.offsetRight = Number(f.right);
   if (f.bottom !== undefined) portrait.offsetBottom = Number(f.bottom);
   if (f.dayOutfit !== undefined) portrait.dayOutfit = f.dayOutfit;
   if (f.nightOutfit !== undefined) portrait.nightOutfit = f.nightOutfit;
+  if (f.expression !== undefined) portrait.expression = f.expression;
   if (f.dayImage !== undefined) portrait.customDayImage = f.dayImage;
   if (f.nightImage !== undefined) portrait.customNightImage = f.nightImage;
   console.log(JSON.stringify(store.update({ portrait }), null, 2));

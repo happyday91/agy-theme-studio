@@ -116,6 +116,7 @@ function buildStatePayload() {
     effective: settingsMod.resolveEffectiveTheme(settings, { systemDark: injector.health.systemDark }),
     presets: store.allPresets(settings),
     portraits: presetsMod.BUILTIN_PORTRAITS,
+    expressions: presetsMod.BUILTIN_EXPRESSIONS,
     health: injector.health,
   };
 }
