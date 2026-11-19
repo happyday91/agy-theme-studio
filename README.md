@@ -60,7 +60,7 @@
 
 ## 📦 快速安装
 
-### 方式二（推荐）：一键复制提示词给 Antigravity 自动安装
+### 方式一（推荐）：一键复制提示词给 Antigravity 自动安装
 
 不想手动配置或敲命令时，点击代码块右上角 **Copy** 复制下面这段提示词，直接发给 Antigravity 对话即可自动完成安装或更新：
 
@@ -69,7 +69,7 @@
 ```
 
 <details>
-<summary>💻 <strong>方式一：终端一行命令自动安装 / 更新（支持 Windows / macOS / Linux）</strong></summary>
+<summary>💻 <strong>方式二：终端一行命令自动安装 / 更新（支持 Windows / macOS / Linux）</strong></summary>
 <br />
 
 无需手动查找插件目录；无论是否安装过 `git`，脚本都会自动克隆、拉取更新或走压缩包安装，且**不会覆盖 `sidecar_data` 个人配置**。
