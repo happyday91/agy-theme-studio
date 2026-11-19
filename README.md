@@ -41,11 +41,11 @@
 
 ## 安装方式
 
-### 方式一：一行命令自动安装 / 更新（推荐）
+### 方式一：一行命令自动安装 / 更新
 
 无需手动查找插件目录；无论是否安装过 `git`，脚本都会自动完成安装或拉取最新更新，且**不会覆盖个人配置**。
 
-- **Windows（PowerShell）**：
+- **Windows（终端）**：
   ```powershell
   irm https://raw.githubusercontent.com/happyday91/agy-theme-studio/main/install.ps1 | iex
   ```
@@ -55,7 +55,7 @@
   curl -fsSL https://raw.githubusercontent.com/happyday91/agy-theme-studio/main/install.sh | bash
   ```
 
-### 方式二：一键复制提示词给 Antigravity 自动安装
+### 方式二：一键复制提示词给 Antigravity 自动安装（推荐）
 
 不想自己敲命令时，直接点击右上角复制下面这段提示词，发给 Antigravity 对话即可自动完成安装或更新：
 
@@ -87,10 +87,3 @@
 
 ### 2. 顶部快捷自定义背景
 - 点击对话窗口顶部右侧的 **「🖼 自定义背景」** 按钮即可快速开启/更换本地背景图（推荐 `16:9` 或 `16:10` 横屏图），并在面板或快捷入口调节背景透显度。
-
-### 3. 对话指令控制
-也可以直接用自然语言让 Antigravity 帮你调整主题，例如：
-- “切换为夜形态主题”
-- “把昼版立绘换成兔女郎，呼吸微摆幅度调到 120%”
-- “开启立绘镜像翻转，透明度调到 0.7”
-- “暂时还原成原版界面”
