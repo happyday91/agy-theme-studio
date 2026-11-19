@@ -141,6 +141,12 @@
 
 ---
 
+## 🎉 自由发挥 & 欢迎共创
+
+本项目基于宽松的 MIT 协议开源——不管是塞入自己的本命立绘、爆改专属色板预设、新增更多魔性表情差分，还是直接魔改 WebGL 物理参数与交互脑洞，**欢迎大家自由发挥！** 喜欢的话欢迎点个 ⭐ Star，或直接提 Issue / PR 分享你的神仙配色和二创玩法！
+
+---
+
 <div align="center">
   <sub>基于 <a href="LICENSE">MIT License</a> 开源 · Made for Antigravity Desktop</sub>
 </div>
