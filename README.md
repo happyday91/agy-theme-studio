@@ -55,15 +55,13 @@
   curl -fsSL https://raw.githubusercontent.com/happyday91/agy-theme-studio/main/install.sh | bash
   ```
 
-### 方式二：本地下载 / Git 克隆安装
+### 方式二：一键复制提示词给 Antigravity 自动安装
 
-- 若你已下载仓库 ZIP 并解压，可在文件夹内直接运行安装脚本（Windows 运行 `.\install.ps1`，macOS / Linux 运行 `bash install.sh`）。
-- 或直接将整个 `agy-theme-studio` 克隆到 Antigravity 插件目录：
-  - Windows：`%USERPROFILE%\.gemini\config\plugins\agy-theme-studio`
-  - macOS / Linux：`~/.gemini/config/plugins/agy-theme-studio`
-  ```bash
-  git clone https://github.com/happyday91/agy-theme-studio.git
-  ```
+不想自己敲命令时，直接点击右上角复制下面这段提示词，发给 Antigravity 对话即可自动完成安装或更新：
+
+```text
+请帮我安装或更新 GitHub 插件 https://github.com/happyday91/agy-theme-studio ：自动执行对应系统的一键安装脚本（Windows 运行 install.ps1，macOS/Linux 运行 install.sh）将其部署到 Antigravity 插件目录，完成后提醒我启用或重启生效。
+```
 
 > **启用生效**：安装完成后，在 Antigravity Desktop 的 **Plugins / Customizations** 管理页启用 **Antigravity Theme Studio**（或重启客户端即可生效）。
 
@@ -76,6 +74,12 @@
 在对话中打开 `[Theme Studio](sidecar://agy-theme-studio/theme_studio/)`（或在插件管理中打开面板），即可在自适应单页仪表盘中实时微调全部参数；此时开启「左移避让」的立绘也会自动左移淡出，不遮挡面板操作：
 
 <img src="assets/preview_panel.png" alt="Theme Studio 控制面板与立绘避让效果" width="100%" />
+
+**控制面板高清全览：**
+
+<p align="center">
+  <img src="assets/preview_panel_ui.png" alt="Theme Studio 控制面板高清特写" width="440" />
+</p>
 
 - **昼夜形态与预设**：切换定时 / 跟随系统 / 锁定昼夜 / 暂停还原，自定义起昼与起夜时间、默认昼夜预设。
 - **右侧立绘与动作**：一键开关显示、左移避让、呼吸微摆、点击弹跳、镜像翻转；滑动调节常规/避让透明度、呼吸幅度、点击跳动范围、缩放与边距，并切换昼/夜穿搭。
