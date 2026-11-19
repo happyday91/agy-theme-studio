@@ -1,7 +1,7 @@
 {
   "name": "agy-theme-studio",
   "displayName": "Antigravity Theme Studio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "二次元紫韵桌面端主题美化插件：支持昼（柔雾浅紫活力）/夜（柔和暮紫慵懒）双形态自动切换、右侧自适应成年版哈基米背景立绘、全套 UI 深度美化与可扩展主题预设引擎。",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [

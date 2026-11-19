@@ -9,7 +9,7 @@
 
   <p>
     <img src="https://img.shields.io/badge/Antigravity-2.0-7C5CE6?style=for-the-badge&logoColor=white" alt="Antigravity 2.0" />
-    <img src="https://img.shields.io/badge/Version-1.0.0-9E86F5?style=for-the-badge" alt="Version 1.0.0" />
+    <img src="https://img.shields.io/badge/Version-1.1.0-9E86F5?style=for-the-badge" alt="Version 1.1.0" />
     <img src="https://img.shields.io/badge/Live2D--Like-WebGL%20Softbody-B28DFF?style=for-the-badge" alt="WebGL Softbody" />
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-6B5B95?style=for-the-badge" alt="Cross Platform" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-5E4DB2?style=for-the-badge" alt="MIT License" /></a>
