@@ -31,7 +31,7 @@ description: Control Antigravity Desktop theme customization (day/night auto-sch
   - 启用/暂停美化：`enable` / `disable`
 - **微调右侧哈基米立绘与表情**：
   `set-portrait --opacity 0.72 --auxAvoidOpacity 0.12 --idleMotion true --idleMotionAmp 0.75 --clickBounce true --clickBounceRange 0.45 --clickExpression true --expression wink --flipX false --scale 1.0 --right 28 --bottom 92 --dayOutfit bunny --nightOutfit bunny`
-  （可选穿搭 `day` / `night` / `bunny`；可选表情 `default` 元气招牌 / `wink` 俏皮眨眼 / `smug` 得意猫嘴 / `shy` 害羞脸红 / `sleepy` 困倦打盹 / `starry` 星星眼；如需关闭立绘：`set-portrait --enabled false`）
+  （可选穿搭 `day` / `night` / `bunny` / `sailor` 深紫JK水手服 / `office` 淡紫雪纺黑丝御姐；可选表情 `default` 元气招牌 / `wink` 俏皮眨眼 / `smug` 得意猫嘴 / `shy` 害羞脸红 / `sleepy` 困倦打盹 / `starry` 星星眼；如需关闭立绘：`set-portrait --enabled false`）
 - **调整毛玻璃与自定义底层背景**：
   `set-effects --glassOpacity 0.78 --radius 14 --customBgEnabled true --customBgImage "C:\\path\\to\\bg.jpg" --customBgOpacity 0.48 --font "..."`
 - **微调指定预设色板（每套预设独立互不影响）**：

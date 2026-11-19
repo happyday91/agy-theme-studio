@@ -79,7 +79,7 @@ function pickSavePathWindows(defaultName) {
 }
 
 let imageDialogOpen = false;
-function pickImageWindows() {
+function pickImageWindows(dialogTitle = '选择自定义全局背景图片') {
   if (imageDialogOpen) return Promise.resolve(null);
   imageDialogOpen = true;
   return new Promise((resolvePath, reject) => {
@@ -89,6 +89,7 @@ function pickImageWindows() {
       return;
     }
     const picDir = join(homedir(), 'Pictures').replace(/'/g, "''");
+    const safeTitle = String(dialogTitle).replace(/'/g, "''");
     const ps = [
       '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
       'Add-Type -AssemblyName System.Windows.Forms',
@@ -97,7 +98,7 @@ function pickImageWindows() {
       '$dlg = New-Object System.Windows.Forms.OpenFileDialog',
       "$dlg.Filter = '图片文件 (*.png;*.jpg;*.jpeg;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.bmp|所有文件 (*.*)|*.*'",
       `$dlg.InitialDirectory = '${picDir}'`,
-      "$dlg.Title = '选择自定义全局背景图片'",
+      `$dlg.Title = '${safeTitle}'`,
       'if ($dlg.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $dlg.FileName }',
       '$form.Dispose()',
     ].join('; ');
@@ -159,9 +160,22 @@ if (process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) {
   app.api(
     '/api/pick-bg',
     async () => {
-      const picked = await pickImageWindows();
+      const picked = await pickImageWindows('选择自定义全局背景图片');
       if (!picked) return { ...buildStatePayload(), canceled: true };
       store.update({ effects: { customBgImage: picked, customBgEnabled: true } });
+      await injector.syncAll();
+      return buildStatePayload();
+    },
+    'POST'
+  );
+  app.api(
+    '/api/pick-portrait',
+    async (data) => {
+      const phase = data?.phase === 'night' ? 'night' : 'day';
+      const picked = await pickImageWindows(phase === 'night' ? '选择自定义夜版立绘图片（建议透明 PNG）' : '选择自定义昼版立绘图片（建议透明 PNG）');
+      if (!picked) return { ...buildStatePayload(), canceled: true };
+      const patch = phase === 'night' ? { customNightImage: picked } : { customDayImage: picked };
+      store.update({ portrait: { ...patch, enabled: true } });
       await injector.syncAll();
       return buildStatePayload();
     },

@@ -9,7 +9,7 @@
 
   <p>
     <img src="https://img.shields.io/badge/Antigravity-2.0-7C5CE6?style=for-the-badge&logoColor=white" alt="Antigravity 2.0" />
-    <img src="https://img.shields.io/badge/Version-1.1.0-9E86F5?style=for-the-badge" alt="Version 1.1.0" />
+    <img src="https://img.shields.io/badge/Version-1.2.0-9E86F5?style=for-the-badge" alt="Version 1.2.0" />
     <img src="https://img.shields.io/badge/Live2D--Like-WebGL%20Softbody-B28DFF?style=for-the-badge" alt="WebGL Softbody" />
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-6B5B95?style=for-the-badge" alt="Cross Platform" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-5E4DB2?style=for-the-badge" alt="MIT License" /></a>
@@ -39,17 +39,17 @@
 </table>
 
 <details>
-<summary>👗 <strong>展开查看内置 3 套高清透明立绘穿搭（昼 / 夜可自由混搭）</strong></summary>
+<summary>👗 <strong>展开查看内置 5 套高清透明立绘穿搭（昼 / 夜自由混搭 · 全套通用 6 表情）</strong></summary>
 <br />
 
-| 昼版 · 清新日常 | 夜版 · 暮紫慵懒 | 昼夜通用 · 白色花边兔女郎 |
-| :---: | :---: | :---: |
-| <img src="assets/hagemi_day.png" alt="哈基米昼版立绘" width="220" /> | <img src="assets/hagemi_night.png" alt="哈基米夜版立绘" width="220" /> | <img src="assets/hagemi_bunny.png" alt="白色花边兔女郎立绘" width="220" /> |
+| 昼版 · 清新日常 | 夜版 · 暮紫慵懒 | 通用 · 白色花边兔女郎 | 通用 · 深紫 JK 水手服 | 通用 · 淡紫雪纺黑丝御姐 |
+| :---: | :---: | :---: | :---: | :---: |
+| <img src="assets/hagemi_day.png" alt="哈基米昼版立绘" width="165" /> | <img src="assets/hagemi_night.png" alt="哈基米夜版立绘" width="165" /> | <img src="assets/hagemi_bunny.png" alt="白色花边兔女郎立绘" width="165" /> | <img src="assets/hagemi_sailor.png" alt="深紫 JK 水手服立绘" width="165" /> | <img src="assets/hagemi_office.png" alt="淡紫雪纺黑丝御姐立绘" width="165" /> |
 
 </details>
 
 <details>
-<summary>🎭 <strong>展开查看内置 6 款二次元表情差分（通用 3 套穿搭 · 搓头即可变脸）</strong></summary>
+<summary>🎭 <strong>展开查看内置 6 款二次元表情差分（通用全部 5 套穿搭 · 搓头即可变脸）</strong></summary>
 <br />
 
 <p align="center">
@@ -66,7 +66,7 @@
 | :--- | :--- |
 | **WebGL 动态交互立绘** | 由 `20×28` 顶点网格驱动，锁定面部五官不形变，提供**胸肩待机微呼吸 + 外侧发梢与猫尾柔风微摆**（`50%–200%` 幅度调节，后台自动休眠）。 |
 | **精准命中与不挡操作** | 内置 `96×144` 透明通道命中图精确识别人物轮廓，**点击立绘任意部位触发局部果冻弹跳**（`10%–150%` 可调），鼠标完全穿透不拦截文字选中与点击。 |
-| **6 种表情 & 搓头变脸** | 内置**元气招牌、俏皮 Wink、得意猫嘴、害羞脸红、困倦打盹、星星眼** 6 款精细面部差分（通用 3 套内置穿搭，支持 `260ms` WebGL 双纹理交叉渐显 + 轻柔点头过渡）；开启「搓头变脸」后点击立绘头部即可切换并固定为新表情！ |
+| **6 种表情 & 搓头变脸** | 内置**元气招牌、俏皮 Wink、得意猫嘴、害羞脸红、困倦打盹、星星眼** 6 款精细面部差分（通过独立 `exprAnchor` 锚点校准通用全部 5 套内置穿搭，支持 `260ms` WebGL 双纹理交叉渐显 + 轻柔点头过渡）；开启「搓头变脸」后点击立绘头部即可切换并固定为新表情！ |
 | **零卡顿热缓存切换** | 已加载穿搭在页面端与宿主侧多图缓存并采用异步后台解码，来回切换穿搭与表情均秒切顺滑，同时自动呈现 `220ms` 换装淡入过渡。 |
 | **自由构图与智能避让** | 支持缩放（`0.50x–1.60x`）、右边距/底边距微调、常规透明度、**水平镜像翻转**（羽化自适应）；展开右侧面板或窗口变窄时平滑左移并淡出避让。 |
 | **昼夜双形态与 4 套预设** | 默认 `07:00–19:00` 柔雾浅紫昼版、`19:00–07:00` 柔和暮紫夜版，支持定时 / 跟随系统 / 手动锁定 / 一键还原，各预设色板独立微调互不串色。 |
@@ -124,7 +124,7 @@
 </table>
 
 - **昼夜形态与预设**：切换定时 / 跟随系统 / 锁定昼夜 / 暂停还原，自定义起昼与起夜时间、默认昼夜预设。
-- **右侧立绘与动作**：一键开关显示、左移避让、呼吸微摆、点击弹跳、搓头变脸、镜像翻转；滑动调节常规/避让透明度、呼吸幅度、点击跳动范围、缩放与边距，切换昼/夜穿搭并一键点选 6 种立绘表情。
+- **右侧立绘与动作**：一键开关显示、左移避让、呼吸微摆、点击弹跳、搓头变脸、镜像翻转；滑动调节常规/避让透明度、呼吸幅度、点击跳动范围、缩放与边距，在 5 套通用内置穿搭间自由混搭或一键点击「本地」导入自定义立绘，并点选 6 种立绘表情。
 - **视觉效果与色板**：开启自定义背景与选图，调整背景透显度、输入框不透明度、圆角大小与字体；逐项微调画布/卡片/强调/文字/代码/边框颜色，支持 JSON 预设导出、导入与恢复默认。
 
 ### 2. 顶部快捷自定义背景

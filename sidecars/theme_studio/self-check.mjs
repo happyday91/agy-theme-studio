@@ -13,14 +13,16 @@ const ASSETS = resolve(HERE, '..', '..', 'assets');
 const compiled = new Function(`return (${pageController.toString()})`);
 if (typeof compiled() !== 'function') throw new Error('pageController serialization failed');
 
-// 2. 验证三套立绘与六种表情差分均存在且能生成哈希与 Data URL
+// 2. 验证五套内置立绘与六种表情差分均存在且能生成哈希、Data URL 与表情锚点
 const inj = new ThemeInjector({
   assetsDir: ASSETS,
   getSettings: () => DEFAULT_SETTINGS,
   resolveTheme: (s, o) => resolveEffectiveTheme(s, o),
 });
 
-for (const outfitId of Object.keys(BUILTIN_PORTRAITS)) {
+const portraitIds = Object.keys(BUILTIN_PORTRAITS);
+if (portraitIds.length !== 5) throw new Error(`Expected 5 builtin portraits, got ${portraitIds.length}`);
+for (const outfitId of portraitIds) {
   const file = join(ASSETS, BUILTIN_PORTRAITS[outfitId].file);
   if (!existsSync(file)) throw new Error(`Missing portrait asset: ${file}`);
   const s = normalizeSettings({ portrait: { dayOutfit: outfitId, nightOutfit: outfitId } });
@@ -29,8 +31,8 @@ for (const outfitId of Object.keys(BUILTIN_PORTRAITS)) {
     if (!asset.showPortrait || !asset.hash || !asset.dataUrl?.startsWith('data:image/')) {
       throw new Error(`Invalid resolved asset for ${phase}/${outfitId}`);
     }
-    if (!asset.allowExpression) {
-      throw new Error(`Expected builtin outfit ${outfitId} to allow expressions`);
+    if (!asset.allowExpression || !asset.exprAnchor || typeof asset.exprAnchor.dx !== 'number') {
+      throw new Error(`Expected builtin outfit ${outfitId} to allow expressions with valid exprAnchor`);
     }
   }
 }

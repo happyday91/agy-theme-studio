@@ -91,9 +91,11 @@ export const BUILTIN_PRESETS = {
 };
 
 export const BUILTIN_PORTRAITS = {
-  day: { id: 'day', name: '昼版穿搭（白色吊带 · 牛仔短裤 · 白丝）', file: 'hagemi_day.png' },
-  night: { id: 'night', name: '夜版穿搭（暮紫丝质吊带裙 · 针织开衫）', file: 'hagemi_night.png' },
-  bunny: { id: 'bunny', name: '白色花边兔女郎（昼夜通用）', file: 'hagemi_bunny.png' },
+  day: { id: 'day', name: '昼版日常（白色吊带 · 牛仔短裤 · 白丝）', file: 'hagemi_day.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  night: { id: 'night', name: '夜版慵懒（暮紫丝质吊带裙 · 针织开衫）', file: 'hagemi_night.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  bunny: { id: 'bunny', name: '白色花边兔女郎（昼夜通用）', file: 'hagemi_bunny.png', exprAnchor: { dx: -1, dy: 0, scale: 1 } },
+  sailor: { id: 'sailor', name: '深紫 JK 水手服（不露肩 · 昼夜通用）', file: 'hagemi_sailor.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  office: { id: 'office', name: '淡紫雪纺黑丝御姐（不露肩 · 昼夜通用）', file: 'hagemi_office.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
 };
 
 export const BUILTIN_EXPRESSIONS = {

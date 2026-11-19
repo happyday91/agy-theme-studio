@@ -659,7 +659,12 @@ function pageController(payload) {
   window.__atsShowPortrait = !!payload.showPortrait;
   window.__atsAllowExpr = !!payload.allowExpression;
   window.__atsClickExpr = payload.clickExpression !== false;
-  window.__atsExprOffsetX = Number.isFinite(Number(payload.exprOffsetX)) ? Number(payload.exprOffsetX) : 0;
+  const rawAnchor = payload.exprAnchor && typeof payload.exprAnchor === 'object' ? payload.exprAnchor : null;
+  window.__atsExprAnchor = {
+    dx: Number.isFinite(Number(rawAnchor?.dx)) ? Number(rawAnchor.dx) : Number(payload.exprOffsetX || 0),
+    dy: Number.isFinite(Number(rawAnchor?.dy)) ? Number(rawAnchor.dy) : 0,
+    scale: Number.isFinite(Number(rawAnchor?.scale)) && Number(rawAnchor.scale) > 0 ? Number(rawAnchor.scale) : 1,
+  };
   const nextBaseExpr = typeof payload.expression === 'string' && payload.expression ? payload.expression : 'default';
   window.__atsBaseExpr = nextBaseExpr;
 
@@ -922,8 +927,11 @@ function pageController(payload) {
       const exprEntry = targetExpr !== 'default' ? window.__atsExprPack?.imgs?.[targetExpr] : null;
       const canUseExpr = !!(exprEntry?.img && exprEntry.img.complete && exprEntry.img.naturalWidth > 0);
       const actualExpr = canUseExpr ? targetExpr : 'default';
-      const offsetX = window.__atsExprOffsetX || 0;
-      const nextTexKey = `${hash}|${actualExpr}|${offsetX}`;
+      const anchor = window.__atsExprAnchor || { dx: 0, dy: 0, scale: 1 };
+      const aDx = Number(anchor.dx) || 0;
+      const aDy = Number(anchor.dy) || 0;
+      const aScale = Number(anchor.scale) > 0 ? Number(anchor.scale) : 1;
+      const nextTexKey = `${hash}|${actualExpr}|${aDx}:${aDy}:${aScale}`;
       if (st.gl && st.texKey !== nextTexKey) {
         const gl = st.gl;
         if (canvasEl.width !== img.naturalWidth || canvasEl.height !== img.naturalHeight || st.texHash !== hash) {
@@ -941,7 +949,13 @@ function pageController(payload) {
           const cctx = st.compCanvas.getContext('2d');
           cctx.clearRect(0, 0, st.compCanvas.width, st.compCanvas.height);
           cctx.drawImage(img, 0, 0);
-          cctx.drawImage(exprEntry.img, exprEntry.x + offsetX, exprEntry.y);
+          cctx.drawImage(
+            exprEntry.img,
+            exprEntry.x + aDx,
+            exprEntry.y + aDy,
+            exprEntry.img.naturalWidth * aScale,
+            exprEntry.img.naturalHeight * aScale
+          );
           texSource = st.compCanvas;
         }
         const uploadTex = (texObj) => {
@@ -1640,8 +1654,9 @@ export class ThemeInjector {
   }
 
   _resolveImageAsset(theme, settings) {
+    const defaultAnchor = { dx: 0, dy: 0, scale: 1 };
     if (!settings.portrait.enabled) {
-      return { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprOffsetX: 0 };
+      return { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprAnchor: defaultAnchor };
     }
     const isNight = theme.portraitKey === 'night';
     const customPath = isNight ? settings.portrait.customNightImage : settings.portrait.customDayImage;
@@ -1651,9 +1666,10 @@ export class ThemeInjector {
     const isCustom = !!(customPath && existsSync(customPath));
     const chosen = isCustom ? customPath : defaultPath;
     const img = this._readCachedImage(chosen);
+    const exprAnchor = isCustom ? defaultAnchor : (outfit.exprAnchor || defaultAnchor);
     return img
-      ? { showPortrait: true, ...img, allowExpression: !isCustom, exprOffsetX: !isCustom && outfit.id === 'bunny' ? -1 : 0 }
-      : { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprOffsetX: 0 };
+      ? { showPortrait: true, ...img, allowExpression: !isCustom, exprAnchor }
+      : { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprAnchor: defaultAnchor };
   }
 
   _resolveExpressionPack() {
@@ -1800,7 +1816,7 @@ export class ThemeInjector {
     const run = async () => {
       const settings = this.getSettings();
       const theme = this.resolveTheme(settings, { systemDark: this.health.systemDark });
-      const image = settings.enabled ? this._resolveImageAsset(theme, settings) : { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprOffsetX: 0 };
+      const image = settings.enabled ? this._resolveImageAsset(theme, settings) : { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprAnchor: { dx: 0, dy: 0, scale: 1 } };
       const exprPack = settings.enabled && image.showPortrait && image.allowExpression ? this._resolveExpressionPack() : { hash: '', patches: null };
       const bgImg = settings.enabled ? this._resolveCustomBgAsset(settings) : { showCustomBg: false, hasSavedBg: false, hash: '', dataUrl: null };
       const css = settings.enabled ? buildThemeCss(theme, settings, bgImg.showCustomBg) : '';
@@ -1838,7 +1854,7 @@ export class ThemeInjector {
             clickExpression: settings.portrait.clickExpression !== false,
             expression: settings.portrait.expression || 'default',
             allowExpression: !!image.allowExpression,
-            exprOffsetX: image.exprOffsetX || 0,
+            exprAnchor: image.exprAnchor || { dx: 0, dy: 0, scale: 1 },
             exprPackHash: exprPack.hash,
             exprPack: withExpr ? exprPack.patches : null,
             flipX: settings.portrait.flipX === true,

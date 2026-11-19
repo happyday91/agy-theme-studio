@@ -335,11 +335,23 @@
       </div>
       <div class="grid-2">
         <div class="field">
-          <label>昼版立绘穿搭</label>
+          <div class="slider-head">
+            <label>昼版立绘穿搭</label>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <button class="btn" id="btn-pick-day-img" type="button" style="padding:1px 6px;font-size:10.5px;" title="选择本地图片作为昼版立绘（建议透明 PNG）">本地</button>
+              <button class="btn" id="btn-clear-day-img" type="button" style="padding:1px 5px;font-size:10.5px;display:none;" title="清除本地昼版立绘，恢复内置穿搭">✕</button>
+            </div>
+          </div>
           <select id="p-day-outfit"></select>
         </div>
         <div class="field">
-          <label>夜版立绘穿搭</label>
+          <div class="slider-head">
+            <label>夜版立绘穿搭</label>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <button class="btn" id="btn-pick-night-img" type="button" style="padding:1px 6px;font-size:10.5px;" title="选择本地图片作为夜版立绘（建议透明 PNG）">本地</button>
+              <button class="btn" id="btn-clear-night-img" type="button" style="padding:1px 5px;font-size:10.5px;display:none;" title="清除本地夜版立绘，恢复内置穿搭">✕</button>
+            </div>
+          </div>
           <select id="p-night-outfit"></select>
         </div>
       </div>
@@ -508,12 +520,15 @@
       document.getElementById('v-bottom').textContent = s.portrait.offsetBottom + 'px';
 
       const portraits = Object.values(data.portraits || {});
-      for (const [selId, target] of [
-        ['p-day-outfit', s.portrait.dayOutfit || 'day'],
-        ['p-night-outfit', s.portrait.nightOutfit || 'night'],
+      const portraitSig = portraits.map((po) => `${po.id}:${po.name}`).join('|');
+      const hasCustomDay = !!(s.portrait.customDayImage && s.portrait.customDayImage.trim());
+      const hasCustomNight = !!(s.portrait.customNightImage && s.portrait.customNightImage.trim());
+      for (const [selId, target, hasCustom, pickId, clearId] of [
+        ['p-day-outfit', s.portrait.dayOutfit || 'day', hasCustomDay, 'btn-pick-day-img', 'btn-clear-day-img'],
+        ['p-night-outfit', s.portrait.nightOutfit || 'night', hasCustomNight, 'btn-pick-night-img', 'btn-clear-night-img'],
       ]) {
         const sel = document.getElementById(selId);
-        if (sel.options.length !== portraits.length) {
+        if (sel.dataset.sig !== portraitSig) {
           sel.innerHTML = '';
           for (const po of portraits) {
             const opt = document.createElement('option');
@@ -521,10 +536,19 @@
             opt.textContent = po.name;
             sel.appendChild(opt);
           }
+          sel.dataset.sig = portraitSig;
         }
         sel.value = target;
+        const pickBtn = document.getElementById(pickId);
+        const clearBtn = document.getElementById(clearId);
+        if (pickBtn) {
+          pickBtn.classList.toggle('primary', hasCustom);
+          pickBtn.textContent = hasCustom ? '本地·已选' : '本地';
+        }
+        if (clearBtn) clearBtn.style.display = hasCustom ? 'inline-block' : 'none';
       }
 
+      const activeIsCustom = eff.portraitKey === 'night' ? hasCustomNight : hasCustomDay;
       const exprList = Object.values(data.expressions || {});
       const curExpr = s.portrait.expression || 'default';
       const exprGrid = document.getElementById('p-expr-grid');
@@ -542,13 +566,18 @@
         }
       }
       if (exprGrid) {
+        exprGrid.style.opacity = activeIsCustom ? '0.55' : '1';
         for (const b of exprGrid.querySelectorAll('button[data-expr]')) {
           b.classList.toggle('active', b.dataset.expr === curExpr);
         }
       }
       const curExprObj = (data.expressions || {})[curExpr];
       const exprDescEl = document.getElementById('v-expr-desc');
-      if (exprDescEl) exprDescEl.textContent = curExprObj ? (curExprObj.desc || curExprObj.name) : '';
+      if (exprDescEl) {
+        exprDescEl.textContent = activeIsCustom
+          ? '当前使用自定义本地图（内置表情已跳过）'
+          : (curExprObj ? (curExprObj.desc || curExprObj.name) : '');
+      }
 
       const hasBgPath = !!(s.effects.customBgImage && s.effects.customBgImage.trim());
       const bgOnEl = document.getElementById('e-custom-bg-on');
@@ -609,8 +638,30 @@
     document.getElementById('p-scale').addEventListener('input', (e) => void patch({ portrait: { scale: Number(e.target.value) } }));
     document.getElementById('p-right').addEventListener('input', (e) => void patch({ portrait: { offsetRight: Number(e.target.value) } }));
     document.getElementById('p-bottom').addEventListener('input', (e) => void patch({ portrait: { offsetBottom: Number(e.target.value) } }));
-    document.getElementById('p-day-outfit').addEventListener('change', (e) => void patch({ portrait: { dayOutfit: e.target.value } }));
-    document.getElementById('p-night-outfit').addEventListener('change', (e) => void patch({ portrait: { nightOutfit: e.target.value } }));
+    document.getElementById('p-day-outfit').addEventListener('change', (e) => void patch({ portrait: { dayOutfit: e.target.value, customDayImage: '' } }));
+    document.getElementById('p-night-outfit').addEventListener('change', (e) => void patch({ portrait: { nightOutfit: e.target.value, customNightImage: '' } }));
+    document.getElementById('btn-pick-day-img').addEventListener('click', async () => {
+      lastPatchAt = Date.now();
+      const next = await apiPost('/api/pick-portrait', { phase: 'day' });
+      render(next);
+      if (next?.canceled) toast('已取消选图');
+      else if (next?.settings?.portrait?.customDayImage) toast('已更换昼版自定义立绘');
+    });
+    document.getElementById('btn-clear-day-img').addEventListener('click', () => {
+      void patch({ portrait: { customDayImage: '' } });
+      toast('昼版已恢复内置穿搭');
+    });
+    document.getElementById('btn-pick-night-img').addEventListener('click', async () => {
+      lastPatchAt = Date.now();
+      const next = await apiPost('/api/pick-portrait', { phase: 'night' });
+      render(next);
+      if (next?.canceled) toast('已取消选图');
+      else if (next?.settings?.portrait?.customNightImage) toast('已更换夜版自定义立绘');
+    });
+    document.getElementById('btn-clear-night-img').addEventListener('click', () => {
+      void patch({ portrait: { customNightImage: '' } });
+      toast('夜版已恢复内置穿搭');
+    });
 
     document.getElementById('e-custom-bg-on').addEventListener('change', (e) => void patch({ effects: { customBgEnabled: e.target.checked } }));
     document.getElementById('btn-pick-bg').addEventListener('click', async () => {
