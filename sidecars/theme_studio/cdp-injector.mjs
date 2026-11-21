@@ -1,11 +1,17 @@
-// 通过本地 DevToolsActivePort 孤立世界向 Antigravity 桌面端注入主题 CSS 与右侧自适应立绘
-import { createHash } from 'node:crypto';
+// 通过本地 DevToolsActivePort / 调试端口孤立世界向 Antigravity 桌面端注入主题 CSS 与右侧自适应立绘
+import { execFile } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { homedir } from 'node:os';
-import { extname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
+import { promisify } from 'node:util';
 import { BUILTIN_EXPRESSIONS, BUILTIN_PORTRAITS } from './presets.mjs';
 import { LocalTelemetry as DefaultLocalTelemetry } from './telemetry.mjs';
+
+const execFileAsync = promisify(execFile);
+const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 const WORLD_NAME = 'agy-theme-studio';
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -36,6 +42,286 @@ export function profileDirectory({ platform = process.platform, env = process.en
   if (platform === 'win32') return join(env.APPDATA || join(home, 'AppData', 'Roaming'), 'Antigravity');
   if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'Antigravity');
   return join(env.XDG_CONFIG_HOME || join(home, '.config'), 'Antigravity');
+}
+
+export function profileDirectories(opts = {}) {
+  const env = opts.env || process.env;
+  const dirs = [];
+  if (env.ANTIGRAVITY_USER_DATA_DIR) dirs.push(env.ANTIGRAVITY_USER_DATA_DIR);
+  const baseDir = profileDirectory(opts);
+  dirs.push(baseDir);
+  const parent = dirname(baseDir);
+  for (const variant of ['Antigravity - Insiders', 'Antigravity Next', 'Antigravity Beta']) {
+    dirs.push(join(parent, variant));
+  }
+  return [...new Set(dirs.filter(Boolean))];
+}
+
+export function parseCdpArgs(commandLine) {
+  const cmd = String(commandLine || '');
+  const ports = [];
+  const userDataDirs = [];
+  const portRe = /--remote-debugging-port(?:=|\s+)(\d+)/gi;
+  let m;
+  while ((m = portRe.exec(cmd)) !== null) {
+    const port = Number(m[1]);
+    if (Number.isInteger(port) && port >= 1 && port <= 65535) ports.push(port);
+  }
+  const dirRe = /--user-data-dir(?:=|\s+)(?:"([^"]+)"|'([^']+)'|([^\s"']+))/gi;
+  while ((m = dirRe.exec(cmd)) !== null) {
+    const dir = (m[1] || m[2] || m[3] || '').trim();
+    if (dir) userDataDirs.push(dir);
+  }
+  return { ports: [...new Set(ports)], userDataDirs: [...new Set(userDataDirs)] };
+}
+
+function httpGetJson(url, timeoutMs = 2500) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const req = httpRequest(
+      {
+        hostname: parsed.hostname,
+        port: Number(parsed.port) || 80,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: 'GET',
+      },
+      (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          text += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          try {
+            resolve(text ? JSON.parse(text) : []);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('HTTP request timed out')));
+    req.end();
+  });
+}
+
+export class CompatWebSocket {
+  constructor(url) {
+    this.readyState = 0;
+    this._listeners = new Map();
+    this._buf = Buffer.alloc(0);
+    this._fragChunks = [];
+    this._socket = null;
+    this._closed = false;
+
+    const parsed = new URL(url);
+    const key = randomBytes(16).toString('base64');
+    const expectedAccept = createHash('sha1').update(key + WS_GUID).digest('base64');
+    const port = Number(parsed.port) || 80;
+    const path = `${parsed.pathname}${parsed.search}` || '/';
+
+    const req = httpRequest({
+      hostname: parsed.hostname,
+      port,
+      path,
+      method: 'GET',
+      headers: {
+        Connection: 'Upgrade',
+        Upgrade: 'websocket',
+        Host: `${parsed.hostname}:${port}`,
+        'Sec-WebSocket-Key': key,
+        'Sec-WebSocket-Version': '13',
+      },
+    });
+    this._req = req;
+
+    req.on('upgrade', (res, socket, head) => {
+      if (this._closed || res.headers['sec-websocket-accept'] !== expectedAccept) {
+        try { socket.destroy(); } catch {}
+        this._fail(new Error('WebSocket upgrade rejected'));
+        return;
+      }
+      this._socket = socket;
+      this.readyState = 1;
+      socket.on('data', (chunk) => this._onData(chunk));
+      socket.on('error', (err) => this._fail(err));
+      socket.on('close', () => this._finishClose());
+      this._emit('open', {});
+      if (head && head.length) this._onData(head);
+    });
+    req.on('response', (res) => {
+      res.resume();
+      this._fail(new Error(`Unexpected WebSocket status ${res.statusCode}`));
+    });
+    req.on('error', (err) => this._fail(err));
+    req.end();
+  }
+
+  addEventListener(type, fn, opts = {}) {
+    if (typeof fn !== 'function') return;
+    let list = this._listeners.get(type);
+    if (!list) {
+      list = [];
+      this._listeners.set(type, list);
+    }
+    list.push({ fn, once: !!opts?.once });
+  }
+
+  _emit(type, event) {
+    const list = this._listeners.get(type);
+    if (!list || list.length === 0) return;
+    const remaining = [];
+    for (const entry of [...list]) {
+      if (!entry.once) remaining.push(entry);
+    }
+    this._listeners.set(type, remaining);
+    for (const entry of [...list]) {
+      try {
+        entry.fn(event);
+      } catch {
+        // ignore listener errors
+      }
+    }
+  }
+
+  _fail(err) {
+    if (this._closed) return;
+    this._emit('error', { error: err });
+    this._finishClose();
+  }
+
+  _finishClose() {
+    if (this._closed) return;
+    this._closed = true;
+    this.readyState = 3;
+    this._emit('close', {});
+  }
+
+  _writeFrame(opcode, payloadBuf) {
+    if (!this._socket || this._socket.destroyed) return;
+    const len = payloadBuf.length;
+    const mask = randomBytes(4);
+    let hdr;
+    if (len < 126) {
+      hdr = Buffer.allocUnsafe(6);
+      hdr[0] = 0x80 | opcode;
+      hdr[1] = 0x80 | len;
+      mask.copy(hdr, 2);
+    } else if (len <= 0xffff) {
+      hdr = Buffer.allocUnsafe(8);
+      hdr[0] = 0x80 | opcode;
+      hdr[1] = 0x80 | 126;
+      hdr.writeUInt16BE(len, 2);
+      mask.copy(hdr, 4);
+    } else {
+      hdr = Buffer.allocUnsafe(14);
+      hdr[0] = 0x80 | opcode;
+      hdr[1] = 0x80 | 127;
+      hdr.writeBigUInt64BE(BigInt(len), 2);
+      mask.copy(hdr, 10);
+    }
+    const masked = Buffer.allocUnsafe(len);
+    for (let i = 0; i < len; i++) {
+      masked[i] = payloadBuf[i] ^ mask[i & 3];
+    }
+    this._socket.write(Buffer.concat([hdr, masked]));
+  }
+
+  _onData(chunk) {
+    this._buf = this._buf.length ? Buffer.concat([this._buf, chunk]) : Buffer.from(chunk);
+    while (this._buf.length >= 2) {
+      const b0 = this._buf[0];
+      const b1 = this._buf[1];
+      const fin = (b0 & 0x80) !== 0;
+      const opcode = b0 & 0x0f;
+      const masked = (b1 & 0x80) !== 0;
+      let len = b1 & 0x7f;
+      let offset = 2;
+      if (len === 126) {
+        if (this._buf.length < 4) return;
+        len = this._buf.readUInt16BE(2);
+        offset = 4;
+      } else if (len === 127) {
+        if (this._buf.length < 10) return;
+        len = Number(this._buf.readBigUInt64BE(2));
+        offset = 10;
+      }
+      const need = offset + (masked ? 4 : 0) + len;
+      if (this._buf.length < need) return;
+
+      const maskKey = masked ? this._buf.subarray(offset, offset + 4) : null;
+      const payload = Buffer.from(this._buf.subarray(offset + (masked ? 4 : 0), need));
+      this._buf = this._buf.subarray(need);
+
+      if (maskKey) {
+        for (let i = 0; i < payload.length; i++) payload[i] ^= maskKey[i & 3];
+      }
+
+      if (opcode === 0x8) {
+        this.close();
+        return;
+      }
+      if (opcode === 0x9) {
+        this._writeFrame(0x0a, payload);
+        continue;
+      }
+      if (opcode === 0x0a) continue;
+
+      if (opcode !== 0x0) {
+        this._fragChunks = [payload];
+      } else {
+        this._fragChunks.push(payload);
+      }
+      if (fin) {
+        const full = Buffer.concat(this._fragChunks);
+        this._fragChunks = [];
+        this._emit('message', { data: full.toString('utf8') });
+      }
+    }
+  }
+
+  send(data) {
+    if (this.readyState !== 1) throw new Error('WebSocket is not open');
+    this._writeFrame(0x01, Buffer.from(String(data), 'utf8'));
+  }
+
+  close() {
+    if (this._closed) return;
+    if (this.readyState === 1) {
+      try {
+        this._writeFrame(0x08, Buffer.alloc(0));
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      this._req?.destroy();
+    } catch {
+      // ignore
+    }
+    try {
+      this._socket?.end();
+      this._socket?.destroy();
+    } catch {
+      // ignore
+    }
+    this._finishClose();
+  }
+}
+
+function createWebSocket(url) {
+  return typeof globalThis.WebSocket === 'function' ? new globalThis.WebSocket(url) : new CompatWebSocket(url);
 }
 
 function isAppWindow(target, port) {
@@ -73,7 +359,7 @@ class CdpSession {
 
   open(timeout = 5000) {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.url);
+      const ws = createWebSocket(this.url);
       this.ws = ws;
       const timer = setTimeout(() => {
         ws.close();
@@ -2804,6 +3090,9 @@ export class ThemeInjector {
     this.onPatch = onPatch;
     this.log = log;
     this.profileDir = profileDirectory();
+    this.profileDirs = profileDirectories();
+    this._procEndpoints = { ports: [], userDataDirs: [] };
+    this._lastProcScanAt = 0;
     this.sessions = new Map();
     this.imageCache = new Map();
     this.health = { state: 'waiting', windows: 0, systemDark: false, compat: null };
@@ -2925,13 +3214,98 @@ export class ThemeInjector {
     return img ? { showCustomBg: true, hasSavedBg: true, ...img } : { showCustomBg: false, hasSavedBg: false, hash: '', dataUrl: null };
   }
 
+  async _discoverProcessEndpoints() {
+    const now = Date.now();
+    if (now - this._lastProcScanAt < 10000) return this._procEndpoints;
+    this._lastProcScanAt = now;
+    const ports = new Set();
+    const userDataDirs = new Set();
+    try {
+      let lines = [];
+      if (process.platform === 'win32') {
+        const script =
+          "Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*Antigravity*' -or $_.CommandLine -like '*Antigravity*' } | Select-Object -ExpandProperty CommandLine";
+        const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+          windowsHide: true,
+          timeout: 6000,
+          maxBuffer: 1 << 20,
+        });
+        lines = stdout.split(/\r?\n/).filter(Boolean);
+      } else {
+        const { stdout } = await execFileAsync('ps', ['-ww', '-axo', 'args='], {
+          timeout: 6000,
+          maxBuffer: 1 << 21,
+        });
+        lines = stdout.split(/\r?\n/).filter((line) => /antigravity/i.test(line));
+      }
+      for (const line of lines) {
+        const parsed = parseCdpArgs(line);
+        for (const p of parsed.ports) ports.add(p);
+        for (const d of parsed.userDataDirs) userDataDirs.add(d);
+      }
+    } catch {
+      // 忽略进程枚举失败，保留常规路径探测
+    }
+    this._procEndpoints = { ports: [...ports], userDataDirs: [...userDataDirs] };
+    return this._procEndpoints;
+  }
+
+  async _collectPorts(dirs, extraPorts = []) {
+    const ports = new Set();
+    const envPort = Number(process.env.ANTIGRAVITY_CDP_PORT);
+    if (Number.isInteger(envPort) && envPort >= 1 && envPort <= 65535) ports.add(envPort);
+    for (const p of extraPorts) {
+      if (Number.isInteger(p) && p >= 1 && p <= 65535) ports.add(p);
+    }
+    for (const dir of dirs) {
+      try {
+        const portText = await readFile(join(dir, 'DevToolsActivePort'), 'utf8');
+        const port = Number(portText.split(/\r?\n/)[0]);
+        if (Number.isInteger(port) && port >= 1 && port <= 65535) ports.add(port);
+      } catch {
+        // 忽略不存在或不可读的目录
+      }
+    }
+    return [...ports];
+  }
+
+  async _queryTargetsOnPorts(ports) {
+    const seen = new Set();
+    const targets = [];
+    for (const port of ports) {
+      try {
+        const list = await httpGetJson(`http://127.0.0.1:${port}/json/list`, 2500);
+        if (!Array.isArray(list)) continue;
+        for (const t of list) {
+          if (!isAppWindow(t, port)) continue;
+          const key = t.id || t.webSocketDebuggerUrl;
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          targets.push(t);
+        }
+      } catch {
+        // 端口不可达或非当前目标，继续尝试其余候选端口
+      }
+    }
+    return targets;
+  }
+
   async _discoverTargets() {
-    const portText = await readFile(join(this.profileDir, 'DevToolsActivePort'), 'utf8');
-    const port = Number(portText.split(/\r?\n/)[0]);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('invalid DevToolsActivePort');
-    const res = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(2500) });
-    const list = await res.json();
-    return list.filter((t) => isAppWindow(t, port));
+    const fastDirs = [...new Set([...this.profileDirs, ...(this._procEndpoints.userDataDirs || [])])];
+    const fastPorts = await this._collectPorts(fastDirs, this._procEndpoints.ports);
+    let targets = await this._queryTargetsOnPorts(fastPorts);
+    if (targets.length > 0) return targets;
+
+    const proc = await this._discoverProcessEndpoints();
+    const allDirs = [...new Set([...this.profileDirs, ...proc.userDataDirs])];
+    const allPorts = await this._collectPorts(allDirs, proc.ports);
+    if (allPorts.length === 0) {
+      const err = new Error('DevToolsActivePort not found');
+      err.code = 'ENOENT';
+      throw err;
+    }
+    targets = await this._queryTargetsOnPorts(allPorts);
+    return targets;
   }
 
   _handleSessionEvent(session, { method, params }) {

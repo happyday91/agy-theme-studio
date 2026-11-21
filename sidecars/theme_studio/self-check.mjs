@@ -1,10 +1,12 @@
 // 发布前自检脚本：验证注入函数序列化、Overscan WebGL 控制器、12 套立绘、10 款表情及本地遥测状态机无异常
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUILTIN_EXPRESSIONS, BUILTIN_PORTRAITS, BUILTIN_PRESETS, DEFAULT_SETTINGS } from './presets.mjs';
 import { normalizeSettings, resolveEffectiveTheme } from './settings.mjs';
-import { ThemeInjector, pageController } from './cdp-injector.mjs';
+import { CompatWebSocket, ThemeInjector, pageController, parseCdpArgs, profileDirectories } from './cdp-injector.mjs';
 import { LocalTelemetry, TranscriptTail, diffConversations, parseConversations } from './telemetry.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -86,7 +88,7 @@ mockInj._handleSessionEvent({ knownImageHashes: new Set() }, {
   method: 'Runtime.bindingCalled',
   params: { name: '__atsBridge', payload: JSON.stringify({ action: 'randomLook' }) },
 });
-if (!patches[0]?.portrait?.dayOutfit || !patches[0]?.portrait?.expression) {
+if (!(patches[0]?.portrait?.dayOutfit || patches[0]?.portrait?.nightOutfit) || !patches[0]?.portrait?.expression) {
   throw new Error('randomLook did not produce portrait patch');
 }
 await mockInj._broadcastSignal({ type: 'turn_done', durationMs: 9000, hadErrors: false, toolCount: 2 });
@@ -183,6 +185,80 @@ if (!subSig || subSig.subagents !== 2) {
 inj.telemetry?.stop?.();
 mockInj.telemetry?.stop?.();
 tel.stop();
+
+// 6. 验证跨平台 CDP 参数解析与 Node 18/20 无原生 WebSocket 时的 CompatWebSocket 回退
+const parsedArgs = parseCdpArgs('Antigravity.exe --user-data-dir="C:\\Custom\\Antigravity Data" --remote-debugging-port=9229 --remote-debugging-port=0');
+if (parsedArgs.ports[0] !== 9229 || parsedArgs.userDataDirs[0] !== 'C:\\Custom\\Antigravity Data') {
+  throw new Error(`parseCdpArgs failed: ${JSON.stringify(parsedArgs)}`);
+}
+const dirs = profileDirectories({ env: { APPDATA: 'C:\\Users\\test\\AppData\\Roaming', ANTIGRAVITY_USER_DATA_DIR: 'D:\\AgyData' }, platform: 'win32' });
+if (dirs[0] !== 'D:\\AgyData' || dirs.length < 3) {
+  throw new Error(`profileDirectories failed: ${JSON.stringify(dirs)}`);
+}
+
+await new Promise((resolveTest, rejectTest) => {
+  const srv = createServer();
+  srv.on('upgrade', (req, socket) => {
+    const key = req.headers['sec-websocket-key'];
+    const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+    socket.write(
+      `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`
+    );
+    let buf = Buffer.alloc(0);
+    socket.on('data', (chunk) => {
+      buf = Buffer.concat([buf, chunk]);
+      while (buf.length >= 2) {
+        const opcode = buf[0] & 0x0f;
+        let len = buf[1] & 0x7f;
+        let off = 2;
+        if (len === 126) {
+          if (buf.length < 4) return;
+          len = buf.readUInt16BE(2);
+          off = 4;
+        }
+        const need = off + 4 + len;
+        if (buf.length < need) return;
+        const mask = buf.subarray(off, off + 4);
+        const payload = Buffer.from(buf.subarray(off + 4, need));
+        buf = buf.subarray(need);
+        for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
+        if (opcode === 0x8) {
+          socket.end();
+          return;
+        }
+        const hdr = payload.length < 126
+          ? Buffer.from([0x81, payload.length])
+          : Buffer.from([0x81, 126, (payload.length >> 8) & 0xff, payload.length & 0xff]);
+        socket.write(Buffer.concat([hdr, payload]));
+      }
+    });
+  });
+  srv.listen(0, '127.0.0.1', () => {
+    const addr = srv.address();
+    const ws = new CompatWebSocket(`ws://127.0.0.1:${addr.port}/devtools/browser/test`);
+    const bigMsg = 'x'.repeat(240);
+    const got = [];
+    ws.addEventListener('open', () => {
+      ws.send('ping-1');
+      ws.send(bigMsg);
+    });
+    ws.addEventListener('message', (ev) => {
+      got.push(ev.data);
+      if (got.length === 2) {
+        if (got[0] !== 'ping-1' || got[1] !== bigMsg) {
+          ws.close();
+          srv.close(() => rejectTest(new Error('CompatWebSocket echo mismatch')));
+          return;
+        }
+        ws.close();
+        srv.close(() => resolveTest());
+      }
+    });
+    ws.addEventListener('error', (err) => {
+      srv.close(() => rejectTest(err?.error || new Error('CompatWebSocket error')));
+    });
+  });
+});
 
 console.log('self-check OK:', {
   presets: Object.keys(BUILTIN_PRESETS).length,

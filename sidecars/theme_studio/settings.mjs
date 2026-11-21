@@ -31,8 +31,12 @@ function mergeDeep(base, patch) {
   return out;
 }
 
+function cloneJson(value) {
+  return typeof globalThis.structuredClone === 'function' ? globalThis.structuredClone(value) : JSON.parse(JSON.stringify(value));
+}
+
 export function normalizeSettings(raw) {
-  const merged = mergeDeep(structuredClone(DEFAULT_SETTINGS), raw || {});
+  const merged = mergeDeep(cloneJson(DEFAULT_SETTINGS), raw || {});
   merged.enabled = merged.enabled !== false;
   if (!['auto-schedule', 'system', 'manual-day', 'manual-night', 'manual-preset'].includes(merged.mode)) {
     merged.mode = 'auto-schedule';
