@@ -104,22 +104,10 @@
       gap: 6px;
     }
     .seg .btn { padding: clamp(4px, 0.65vh, 7px) 4px; text-align: center; }
-    .seg .btn.active, .expr-grid .btn.active {
+    .seg .btn.active {
       background: var(--accent-c);
       color: var(--accent-fg);
       border-color: var(--accent-c);
-    }
-    .expr-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 5px;
-    }
-    .expr-grid .btn {
-      padding: clamp(3px, 0.5vh, 5px) 4px;
-      text-align: center;
-      font-size: clamp(10.5px, 1.22vh, 12px);
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
     .sec-title {
       font-size: clamp(11.5px, 1.35vh, 13px);
@@ -298,6 +286,9 @@
           <label><input type="checkbox" id="p-idle-motion"> 呼吸微摆</label>
           <label><input type="checkbox" id="p-click-bounce"> 点击弹跳</label>
           <label title="点击立绘头部即可随机切换并固定为新表情"><input type="checkbox" id="p-click-expr"> 搓头变脸</label>
+          <label title="猫耳/兔耳抖动、呆毛弹簧、安全区扫尾与轻歪头"><input type="checkbox" id="p-micro-motion"> 灵动微动态</label>
+          <label title="自定义壁纸取色轮廓光 / 未开壁纸按晨曦·晴昼·暮霞·夜月流转逆光、透光发丝与星芒发卡流光"><input type="checkbox" id="p-ambient-light"> 光影氛围</label>
+          <label title="无声联动 AI 思考/完工/多代理监工、击键呆毛与挂机打盹抓包"><input type="checkbox" id="p-ai-companion"> 对话默契</label>
           <label><input type="checkbox" id="p-flip-x"> 镜像翻转</label>
         </div>
       </div>
@@ -355,9 +346,9 @@
           <select id="p-night-outfit"></select>
         </div>
       </div>
-      <div class="field" style="gap:4px;">
-        <div class="slider-head"><span>立绘表情（内置穿搭通用）</span><span class="val" id="v-expr-desc"></span></div>
-        <div class="expr-grid" id="p-expr-grid"></div>
+      <div class="row">
+        <label for="p-expr" title="全部内置穿搭通用，也可开启搓头变脸或顶栏骰子随机切换">立绘表情（通用）</label>
+        <select id="p-expr" style="flex:1;max-width:290px;"></select>
       </div>
     </section>
 
@@ -500,6 +491,9 @@
       document.getElementById('p-idle-motion').checked = s.portrait.idleMotion !== false;
       document.getElementById('p-click-bounce').checked = s.portrait.clickBounce !== false;
       document.getElementById('p-click-expr').checked = s.portrait.clickExpression !== false;
+      document.getElementById('p-micro-motion').checked = s.portrait.microMotion !== false;
+      document.getElementById('p-ambient-light').checked = s.portrait.ambientLight !== false;
+      document.getElementById('p-ai-companion').checked = s.portrait.aiCompanion !== false;
       document.getElementById('p-flip-x').checked = s.portrait.flipX === true;
 
       document.getElementById('p-opacity').value = s.portrait.opacity;
@@ -551,32 +545,25 @@
       const activeIsCustom = eff.portraitKey === 'night' ? hasCustomNight : hasCustomDay;
       const exprList = Object.values(data.expressions || {});
       const curExpr = s.portrait.expression || 'default';
-      const exprGrid = document.getElementById('p-expr-grid');
-      if (exprGrid && exprGrid.childElementCount !== exprList.length) {
-        exprGrid.innerHTML = '';
-        for (const ex of exprList) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'btn';
-          btn.dataset.expr = ex.id;
-          btn.title = ex.desc || ex.name;
-          btn.textContent = `${ex.emoji || ''} ${ex.name}`.trim();
-          btn.addEventListener('click', () => void patch({ portrait: { expression: ex.id } }));
-          exprGrid.appendChild(btn);
+      const exprSel = document.getElementById('p-expr');
+      const exprSig = exprList.map((ex) => `${ex.id}:${ex.name}`).join('|');
+      if (exprSel) {
+        if (exprSel.dataset.sig !== exprSig) {
+          exprSel.innerHTML = '';
+          for (const ex of exprList) {
+            const opt = document.createElement('option');
+            opt.value = ex.id;
+            opt.textContent = `${ex.emoji ? ex.emoji + ' ' : ''}${ex.name}${ex.desc ? ' · ' + ex.desc : ''}`;
+            exprSel.appendChild(opt);
+          }
+          exprSel.dataset.sig = exprSig;
         }
-      }
-      if (exprGrid) {
-        exprGrid.style.opacity = activeIsCustom ? '0.55' : '1';
-        for (const b of exprGrid.querySelectorAll('button[data-expr]')) {
-          b.classList.toggle('active', b.dataset.expr === curExpr);
-        }
-      }
-      const curExprObj = (data.expressions || {})[curExpr];
-      const exprDescEl = document.getElementById('v-expr-desc');
-      if (exprDescEl) {
-        exprDescEl.textContent = activeIsCustom
-          ? '当前使用自定义本地图（内置表情已跳过）'
-          : (curExprObj ? (curExprObj.desc || curExprObj.name) : '');
+        exprSel.value = curExpr;
+        exprSel.style.opacity = activeIsCustom ? '0.6' : '1';
+        const curExprObj = (data.expressions || {})[curExpr];
+        exprSel.title = activeIsCustom
+          ? '当前使用自定义本地立绘（恢复内置穿搭即可启用通用表情）'
+          : (curExprObj ? (curExprObj.desc || curExprObj.name) : '选择通用立绘表情');
       }
 
       const hasBgPath = !!(s.effects.customBgImage && s.effects.customBgImage.trim());
@@ -630,6 +617,9 @@
     document.getElementById('p-idle-motion').addEventListener('change', (e) => void patch({ portrait: { idleMotion: e.target.checked } }));
     document.getElementById('p-click-bounce').addEventListener('change', (e) => void patch({ portrait: { clickBounce: e.target.checked } }));
     document.getElementById('p-click-expr').addEventListener('change', (e) => void patch({ portrait: { clickExpression: e.target.checked } }));
+    document.getElementById('p-micro-motion').addEventListener('change', (e) => void patch({ portrait: { microMotion: e.target.checked } }));
+    document.getElementById('p-ambient-light').addEventListener('change', (e) => void patch({ portrait: { ambientLight: e.target.checked } }));
+    document.getElementById('p-ai-companion').addEventListener('change', (e) => void patch({ portrait: { aiCompanion: e.target.checked } }));
     document.getElementById('p-flip-x').addEventListener('change', (e) => void patch({ portrait: { flipX: e.target.checked } }));
     document.getElementById('p-opacity').addEventListener('input', (e) => void patch({ portrait: { opacity: Number(e.target.value) } }));
     document.getElementById('p-avoid').addEventListener('input', (e) => void patch({ portrait: { auxAvoidOpacity: Number(e.target.value) } }));
@@ -640,6 +630,7 @@
     document.getElementById('p-bottom').addEventListener('input', (e) => void patch({ portrait: { offsetBottom: Number(e.target.value) } }));
     document.getElementById('p-day-outfit').addEventListener('change', (e) => void patch({ portrait: { dayOutfit: e.target.value, customDayImage: '' } }));
     document.getElementById('p-night-outfit').addEventListener('change', (e) => void patch({ portrait: { nightOutfit: e.target.value, customNightImage: '' } }));
+    document.getElementById('p-expr').addEventListener('change', (e) => void patch({ portrait: { expression: e.target.value } }));
     document.getElementById('btn-pick-day-img').addEventListener('click', async () => {
       lastPatchAt = Date.now();
       const next = await apiPost('/api/pick-portrait', { phase: 'day' });

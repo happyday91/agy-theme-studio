@@ -5,9 +5,17 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, join } from 'node:path';
 import { BUILTIN_EXPRESSIONS, BUILTIN_PORTRAITS } from './presets.mjs';
+import { LocalTelemetry as DefaultLocalTelemetry } from './telemetry.mjs';
 
 const WORLD_NAME = 'agy-theme-studio';
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+function pickDifferent(pool, current) {
+  if (!Array.isArray(pool) || pool.length === 0) return current;
+  const candidates = pool.filter((id) => id !== current);
+  const src = candidates.length > 0 ? candidates : pool;
+  return src[Math.floor(Math.random() * src.length)];
+}
 const APP_CHECK = `(() => {
   try {
     if (window.top !== window) return false;
@@ -60,6 +68,7 @@ class CdpSession {
     this.knownImageHashes = new Set();
     this.sentExprHash = null;
     this.sentBgHash = null;
+    this.controllerReady = false;
   }
 
   open(timeout = 5000) {
@@ -352,16 +361,8 @@ pre {
   transform: translate3d(calc(-1 * var(--ats-aux-shift, 0px)), 0, 0) scale(${pr.scale});
   opacity: ${pr.enabled ? pr.opacity : 0};
   will-change: transform, opacity;
-  transition: opacity 0.22s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none !important;
-  -webkit-mask-image:
-    linear-gradient(to top, transparent 0%, #000 ${pr.featherBottom}%, #000 100%),
-    linear-gradient(to right, transparent 0%, #000 ${pr.featherLeft}%, #000 100%);
-  -webkit-mask-composite: source-in;
-  mask-image:
-    linear-gradient(to top, transparent 0%, #000 ${pr.featherBottom}%, #000 100%),
-    linear-gradient(to right, transparent 0%, #000 ${pr.featherLeft}%, #000 100%);
-  mask-composite: intersect;
 }
 
 #agy-theme-studio-backdrop[data-aux-dragging="true"] #agy-theme-studio-portrait-wrap {
@@ -372,12 +373,20 @@ pre {
   opacity: ${pr.enabled ? pr.auxAvoidOpacity : 0};
 }
 
-#agy-theme-studio-backdrop[data-narrow="true"] #agy-theme-studio-portrait-wrap {
-  opacity: ${pr.enabled ? Math.min(pr.auxAvoidOpacity, 0.1) : 0};
+#agy-theme-studio-portrait {
+  -webkit-mask-image:
+    linear-gradient(to top, transparent 0%, #000 ${pr.featherBottom}%, #000 100%),
+    linear-gradient(to right, transparent 0%, #000 ${pr.featherLeft}%, #000 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to top, transparent 0%, #000 ${pr.featherBottom}%, #000 100%),
+    linear-gradient(to right, transparent 0%, #000 ${pr.featherLeft}%, #000 100%);
+  mask-composite: intersect;
 }
 
 #agy-theme-studio-portrait,
-#agy-theme-studio-canvas {
+#agy-theme-studio-canvas,
+#agy-theme-studio-shadow {
   display: block;
   height: 100%;
   width: auto;
@@ -386,14 +395,39 @@ pre {
   transform: translateZ(0)${pr.flipX ? ' scaleX(-1)' : ''};
   backface-visibility: hidden;
   pointer-events: none !important;
-  filter: drop-shadow(0 12px 24px ${isDark ? 'rgba(18, 10, 36, 0.38)' : 'rgba(104, 78, 176, 0.18)'});
+}
+
+#agy-theme-studio-shadow {
+  position: absolute;
+  top: -8%;
+  left: -8%;
+  width: 116%;
+  height: 116%;
+  max-width: none;
+  z-index: 0;
+  transform: translateZ(0);
+  -webkit-mask-image:
+    linear-gradient(to top, transparent 0%, #000 ${pr.featherBottom}%, #000 100%),
+    linear-gradient(to right, transparent 0%, #000 ${pr.featherLeft}%, #000 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to top, transparent 0%, #000 ${pr.featherBottom}%, #000 100%),
+    linear-gradient(to right, transparent 0%, #000 ${pr.featherLeft}%, #000 100%);
+  mask-composite: intersect;
+}
+
+#agy-theme-studio-portrait,
+#agy-theme-studio-canvas {
+  position: relative;
+  z-index: 1;
 }
 
 #agy-theme-studio-canvas {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  top: -8%;
+  left: -8%;
+  width: 116%;
+  height: 116%;
   max-width: none;
   display: none;
 }
@@ -454,6 +488,60 @@ pre {
 #agy-theme-studio-topbar-pill button#ats-bg-clear:hover {
   opacity: 1;
 }
+#agy-theme-studio-topbar-pill button#ats-random-look {
+  padding: 0 5px;
+  min-width: 24px;
+  justify-content: center;
+  overflow: visible;
+}
+#agy-theme-studio-topbar-pill .ats-die-scene {
+  width: 14px;
+  height: 14px;
+  perspective: 68px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+#agy-theme-studio-topbar-pill .ats-die-cube {
+  width: 12px;
+  height: 12px;
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.56s cubic-bezier(0.22, 1.18, 0.36, 1);
+}
+#agy-theme-studio-topbar-pill .ats-die-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 2.5px;
+  display: grid;
+  grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+  padding: 1.5px;
+  box-sizing: border-box;
+  place-items: center;
+  backface-visibility: hidden;
+  background: color-mix(in srgb, ${p.bgCard} 94%, #ffffff);
+  border: 1px solid color-mix(in srgb, ${p.accent} 62%, ${p.border});
+  box-shadow: inset 0 0 2px color-mix(in srgb, ${p.accent} 20%, transparent);
+}
+#agy-theme-studio-topbar-pill .ats-pip {
+  width: 2.1px;
+  height: 2.1px;
+  border-radius: 50%;
+  background: ${p.accent};
+}
+#agy-theme-studio-topbar-pill .ats-pip.is-one {
+  width: 3.5px;
+  height: 3.5px;
+  background: #e84c7f;
+}
+#agy-theme-studio-topbar-pill .ats-pill-sep {
+  width: 1px;
+  height: 12px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, ${p.border} 90%, transparent);
+  margin: 0 1px;
+}
 `;
 }
 
@@ -466,6 +554,10 @@ function pageController(payload) {
   const PILL_ID = 'agy-theme-studio-topbar-pill';
 
   function teardown() {
+    const wrapEl = document.getElementById('agy-theme-studio-portrait-wrap');
+    if (wrapEl) {
+      wrapEl.style.removeProperty('--ats-yield-mul');
+    }
     document.getElementById(STYLE_ID)?.remove();
     document.getElementById(ADAPT_STYLE_ID)?.remove();
     document.getElementById(BG_LAYER_ID)?.remove();
@@ -477,6 +569,7 @@ function pageController(payload) {
     document.documentElement.removeAttribute('data-agy-theme-studio');
     document.documentElement.style.removeProperty('color-scheme');
     document.documentElement.style.removeProperty('--ats-custom-bg');
+    document.documentElement.style.removeProperty('--ats-yield-mul');
     delete document.documentElement.dataset.atsBgHash;
     if (window.__atsObserver) {
       window.__atsObserver.disconnect();
@@ -493,6 +586,29 @@ function pageController(payload) {
     if (window.__atsPointerHandler) {
       document.removeEventListener('pointerdown', window.__atsPointerHandler, true);
       window.__atsPointerHandler = null;
+      window.__atsPointerVer = 0;
+    }
+    if (window.__atsKeyHandler) {
+      document.removeEventListener('keydown', window.__atsKeyHandler, true);
+      window.__atsKeyHandler = null;
+    }
+    if (window.__atsWheelHandler) {
+      document.removeEventListener('wheel', window.__atsWheelHandler, true);
+      window.__atsWheelHandler = null;
+      window.__atsWheelVer = 0;
+    }
+    if (window.__atsMoveHandler) {
+      document.removeEventListener('pointermove', window.__atsMoveHandler, true);
+      window.__atsMoveHandler = null;
+      window.__atsMoveVer = 0;
+    }
+    if (window.__atsSelHandler) {
+      document.removeEventListener('selectionchange', window.__atsSelHandler);
+      window.__atsSelHandler = null;
+    }
+    if (window.__atsFocusHandler) {
+      window.removeEventListener('focus', window.__atsFocusHandler);
+      window.__atsFocusHandler = null;
     }
     if (window.__atsVisHandler) {
       document.removeEventListener('visibilitychange', window.__atsVisHandler);
@@ -504,10 +620,22 @@ function pageController(payload) {
     }
     clearTimeout(window.__atsDragTimer);
     window.__atsDragTimer = null;
+    clearTimeout(window.__atsDyn?.transTimer);
     window.__atsLastShift = 0;
+    window.__atsUpdateLayout = null;
+    window.__atsTopBarEl = null;
+    window.__atsLocalExprLock = null;
     window.__atsDiscoveredVars = null;
     window.__atsDiscoveredSig = null;
     window.__atsBounce = null;
+    window.__atsDyn = null;
+    window.__atsOnSignal = null;
+    window.__atsBgRim = null;
+    window.__atsBgSampleHash = '';
+    window.__atsShowCustomBg = false;
+    window.__atsBgHash = '';
+    window.__atsPhase = 'day';
+    window.__atsMode = 'auto';
     window.__atsDesiredHash = '';
     window.__atsPendingLoads = null;
     window.__atsRefreshExpr = null;
@@ -548,6 +676,9 @@ function pageController(payload) {
     delete document.documentElement.dataset.atsBgHash;
   }
 
+  // 清理旧版误挂在 html 根节点的全局样式变量，避免引发整页样式继承失效
+  document.documentElement.style.removeProperty('--ats-yield-mul');
+
   let backdrop = document.getElementById(BACKDROP_ID);
   if (!backdrop) {
     backdrop = document.createElement('div');
@@ -555,12 +686,15 @@ function pageController(payload) {
 
     const wrap = document.createElement('div');
     wrap.id = 'agy-theme-studio-portrait-wrap';
+    const shadow = document.createElement('canvas');
+    shadow.id = 'agy-theme-studio-shadow';
     const img = document.createElement('img');
     img.id = 'agy-theme-studio-portrait';
     img.alt = '';
     img.draggable = false;
     const canvas = document.createElement('canvas');
     canvas.id = 'agy-theme-studio-canvas';
+    wrap.appendChild(shadow);
     wrap.appendChild(img);
     wrap.appendChild(canvas);
 
@@ -574,10 +708,87 @@ function pageController(payload) {
   window.__atsCustomBgOn = !!payload.customBgEnabled;
 
   let topPill = document.getElementById(PILL_ID);
-  if (!topPill || !topPill.querySelector('#ats-bg-toggle')) {
+  if (!topPill || !topPill.querySelector('#ats-bg-toggle') || !topPill.querySelector('#ats-random-look .ats-die-cube')) {
     topPill?.remove();
     topPill = document.createElement('div');
     topPill.id = PILL_ID;
+
+    const pipLayouts = {
+      1: [[2, 2]],
+      2: [[1, 3], [3, 1]],
+      3: [[1, 3], [2, 2], [3, 1]],
+      4: [[1, 1], [1, 3], [3, 1], [3, 3]],
+      5: [[1, 1], [1, 3], [2, 2], [3, 1], [3, 3]],
+      6: [[1, 1], [1, 3], [2, 1], [2, 3], [3, 1], [3, 3]],
+    };
+    const facePose = {
+      1: { faceXf: 'translateZ(6px)', rx: 0, ry: 0 },
+      2: { faceXf: 'rotateX(90deg) translateZ(6px)', rx: -90, ry: 0 },
+      3: { faceXf: 'rotateY(90deg) translateZ(6px)', rx: 0, ry: -90 },
+      4: { faceXf: 'rotateY(-90deg) translateZ(6px)', rx: 0, ry: 90 },
+      5: { faceXf: 'rotateX(-90deg) translateZ(6px)', rx: 90, ry: 0 },
+      6: { faceXf: 'rotateY(180deg) translateZ(6px)', rx: 0, ry: 180 },
+    };
+
+    const randomBtn = document.createElement('button');
+    randomBtn.id = 'ats-random-look';
+    randomBtn.type = 'button';
+    const scene = document.createElement('span');
+    scene.className = 'ats-die-scene';
+    const cube = document.createElement('span');
+    cube.className = 'ats-die-cube';
+    for (let f = 1; f <= 6; f++) {
+      const faceEl = document.createElement('span');
+      faceEl.className = 'ats-die-face';
+      faceEl.style.transform = facePose[f].faceXf;
+      for (const [r, c] of pipLayouts[f]) {
+        const pip = document.createElement('span');
+        pip.className = f === 1 ? 'ats-pip is-one' : 'ats-pip';
+        pip.style.gridArea = r + ' / ' + c;
+        faceEl.appendChild(pip);
+      }
+      cube.appendChild(faceEl);
+    }
+    scene.appendChild(cube);
+    randomBtn.appendChild(scene);
+
+    if (!window.__atsDieState) {
+      window.__atsDieState = { face: 1 + Math.floor(Math.random() * 6), kX: 0, kY: 0 };
+    }
+    const initPose = facePose[window.__atsDieState.face] || facePose[1];
+    cube.style.transform = 'rotateX(' + (initPose.rx + window.__atsDieState.kX * 360) + 'deg) rotateY(' + (initPose.ry + window.__atsDieState.kY * 360) + 'deg)';
+    randomBtn.title = '当前 ' + window.__atsDieState.face + ' 点 · 点击掷骰随机切换穿搭与表情';
+
+    randomBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const st = window.__atsDieState || { face: 1, kX: 0, kY: 0 };
+      const candidates = [1, 2, 3, 4, 5, 6].filter((n) => n !== st.face);
+      const nextFace = candidates[Math.floor(Math.random() * candidates.length)];
+      st.face = nextFace;
+      st.kX += 1 + Math.floor(Math.random() * 2);
+      st.kY += 1 + Math.floor(Math.random() * 2);
+      window.__atsDieState = st;
+      const pose = facePose[nextFace];
+      cube.style.transform = 'rotateX(' + (pose.rx + st.kX * 360) + 'deg) rotateY(' + (pose.ry + st.kY * 360) + 'deg)';
+      randomBtn.title = '掷出 ' + nextFace + ' 点 · 点击随机切换穿搭与表情';
+      if (scene.animate) {
+        scene.animate(
+          [
+            { transform: 'translateY(0px) scale(1)' },
+            { transform: 'translateY(-2.5px) scale(1.16)', offset: 0.42 },
+            { transform: 'translateY(0.5px) scale(0.96)', offset: 0.8 },
+            { transform: 'translateY(0px) scale(1)' },
+          ],
+          { duration: 520, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }
+        );
+      }
+      if (typeof window.__atsBridge === 'function') {
+        window.__atsBridge(JSON.stringify({ action: 'randomLook' }));
+      }
+    });
+
+    const sep = document.createElement('span');
+    sep.className = 'ats-pill-sep';
 
     const toggleBtn = document.createElement('button');
     toggleBtn.id = 'ats-bg-toggle';
@@ -618,6 +829,8 @@ function pageController(payload) {
       }
     });
 
+    topPill.appendChild(randomBtn);
+    topPill.appendChild(sep);
     topPill.appendChild(toggleBtn);
     topPill.appendChild(pickBtn);
     topPill.appendChild(clearBtn);
@@ -646,6 +859,12 @@ function pageController(payload) {
   if (clearEl) clearEl.style.display = window.__atsHasSavedBg ? 'inline-flex' : 'none';
 
   const imgEl = document.getElementById('agy-theme-studio-portrait');
+  let shadowEl = document.getElementById('agy-theme-studio-shadow');
+  if (!shadowEl && imgEl?.parentElement) {
+    shadowEl = document.createElement('canvas');
+    shadowEl.id = 'agy-theme-studio-shadow';
+    imgEl.parentElement.insertBefore(shadowEl, imgEl);
+  }
   let canvasEl = document.getElementById('agy-theme-studio-canvas');
   if (!canvasEl && imgEl?.parentElement) {
     canvasEl = document.createElement('canvas');
@@ -655,8 +874,21 @@ function pageController(payload) {
   window.__atsClickBounce = payload.clickBounce !== false;
   window.__atsBounceRange = Number.isFinite(Number(payload.clickBounceRange)) ? Number(payload.clickBounceRange) : 0.45;
   window.__atsIdleAmp = payload.idleMotion !== false ? Math.min(2.0, Math.max(0.5, Number(payload.idleMotionAmp ?? 0.75))) : 0;
+  window.__atsMicroMotion = payload.microMotion !== false;
+  window.__atsAmbientLight = payload.ambientLight !== false;
+  window.__atsPhase = payload.phase === 'night' ? 'night' : 'day';
+  window.__atsMode = payload.mode || 'auto';
+  window.__atsAiCompanion = payload.aiCompanion !== false;
   window.__atsFlipX = payload.flipX === true;
+  window.__atsPortraitScale = Number.isFinite(Number(payload.portraitScale)) && Number(payload.portraitScale) > 0 ? Number(payload.portraitScale) : 1;
   window.__atsShowPortrait = !!payload.showPortrait;
+  window.__atsShowCustomBg = !!payload.showCustomBg;
+  window.__atsBgHash = payload.bgHash || '';
+  window.__atsOutfitKey = typeof payload.outfitKey === 'string' ? payload.outfitKey : '';
+  window.__atsFeather = {
+    left: Math.max(0, Math.min(45, Number(payload.featherLeft ?? 14))) / 100,
+    bottom: Math.max(0, Math.min(45, Number(payload.featherBottom ?? 12))) / 100,
+  };
   window.__atsAllowExpr = !!payload.allowExpression;
   window.__atsClickExpr = payload.clickExpression !== false;
   const rawAnchor = payload.exprAnchor && typeof payload.exprAnchor === 'object' ? payload.exprAnchor : null;
@@ -666,7 +898,36 @@ function pageController(payload) {
     scale: Number.isFinite(Number(rawAnchor?.scale)) && Number(rawAnchor.scale) > 0 ? Number(rawAnchor.scale) : 1,
   };
   const nextBaseExpr = typeof payload.expression === 'string' && payload.expression ? payload.expression : 'default';
-  window.__atsBaseExpr = nextBaseExpr;
+  const exprLock = window.__atsLocalExprLock;
+  if (exprLock && performance.now() - exprLock.at < 6000) {
+    if (nextBaseExpr === exprLock.expr) {
+      window.__atsLocalExprLock = null;
+      window.__atsBaseExpr = nextBaseExpr;
+    } else if (nextBaseExpr === exprLock.prevExpr) {
+      // 防止 3 秒轮询竞态把刚戳头切换的新表情覆写回旧表情；若超过 1.2s 未同步则补发一次写回
+      window.__atsBaseExpr = exprLock.expr;
+      if (!exprLock.retried && performance.now() - exprLock.at > 1200 && typeof window.__atsBridge === 'function') {
+        exprLock.retried = true;
+        window.__atsBridge(JSON.stringify({ portrait: { expression: exprLock.expr } }));
+      }
+    } else {
+      window.__atsLocalExprLock = null;
+      window.__atsBaseExpr = nextBaseExpr;
+    }
+  } else {
+    window.__atsLocalExprLock = null;
+    window.__atsBaseExpr = nextBaseExpr;
+  }
+
+  function parseHexRgb(hex, fallback) {
+    if (typeof hex === 'string' && /^#[0-9a-f]{6}$/i.test(hex.trim())) {
+      const n = parseInt(hex.trim().slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    return fallback;
+  }
+  const ac = parseHexRgb(payload.accentColor, [124, 92, 230]);
+  window.__atsAccentRgb = [ac[0] / 255, ac[1] / 255, ac[2] / 255];
 
   if (!window.__atsExprPack) {
     window.__atsExprPack = { hash: '', imgs: {} };
@@ -674,6 +935,95 @@ function pageController(payload) {
   if (!window.__atsPortraitCache) {
     window.__atsPortraitCache = { order: [], map: {} };
   }
+
+  if (payload.showCustomBg && payload.bgDataUrl && payload.bgHash && (window.__atsBgSampleHash !== payload.bgHash || window.__atsBgRim?.ver !== 2)) {
+    window.__atsBgSampleHash = payload.bgHash;
+    const bgS = new Image();
+    bgS.onload = () => {
+      try {
+        const sc = document.createElement('canvas');
+        sc.width = 16;
+        sc.height = 16;
+        const sctx = sc.getContext('2d', { willReadFrequently: true });
+        sctx.drawImage(bgS, 0, 0, 16, 16);
+        const px = sctx.getImageData(0, 0, 16, 16).data;
+        let msR = 0, msG = 0, msB = 0, msCnt = 0;
+        let bsR = 0, bsG = 0, bsB = 0, bsCnt = 0;
+        for (let y = 0; y < 16; y++) {
+          for (let x = 0; x < 16; x++) {
+            const i = (y * 16 + x) * 4;
+            if (x <= 4 || y <= 2) {
+              msR += px[i];
+              msG += px[i + 1];
+              msB += px[i + 2];
+              msCnt++;
+            }
+            if (x >= 11 || y >= 13) {
+              bsR += px[i];
+              bsG += px[i + 1];
+              bsB += px[i + 2];
+              bsCnt++;
+            }
+          }
+        }
+        const acc = window.__atsAccentRgb || [0.55, 0.42, 0.9];
+        const toneRimColor = (rs, gs, bs, cnt, fallback) => {
+          if (cnt <= 0) return fallback;
+          let r = rs / cnt / 255;
+          let g = gs / cnt / 255;
+          let b = bs / cnt / 255;
+          const avg = (r + g + b) / 3;
+          r = Math.min(1, Math.max(0, avg + (r - avg) * 1.65));
+          g = Math.min(1, Math.max(0, avg + (g - avg) * 1.65));
+          b = Math.min(1, Math.max(0, avg + (b - avg) * 1.65));
+          const peak = Math.max(r, g, b);
+          if (peak < 0.02) {
+            r = acc[0];
+            g = acc[1];
+            b = acc[2];
+          } else if (peak < 0.78) {
+            const boost = 0.78 / peak;
+            r = Math.min(1, r * boost);
+            g = Math.min(1, g * boost);
+            b = Math.min(1, b * boost);
+          }
+          return [
+            r * 0.85 + acc[0] * 0.15,
+            g * 0.85 + acc[1] * 0.15,
+            b * 0.85 + acc[2] * 0.15,
+            avg,
+          ];
+        };
+        if (msCnt > 0 || bsCnt > 0) {
+          const mainC = toneRimColor(msR, msG, msB, msCnt, [acc[0], acc[1], acc[2], 0.5]);
+          const fillC = toneRimColor(bsR, bsG, bsB, bsCnt, mainC);
+          const avg = (mainC[3] + fillC[3]) * 0.5;
+          window.__atsBgRim = {
+            ver: 2,
+            hash: payload.bgHash,
+            r: mainC[0],
+            g: mainC[1],
+            b: mainC[2],
+            fr: fillC[0],
+            fg: fillC[1],
+            fb: fillC[2],
+            str: 0.58 + Math.min(0.10, avg * 0.10),
+            auraAlpha: 0.40,
+          };
+          window.__atsRefreshExpr?.();
+        }
+      } catch {
+        // ignore
+      }
+    };
+    bgS.src = payload.bgDataUrl;
+  } else if (!payload.showCustomBg) {
+    window.__atsBgRim = null;
+    window.__atsBgSampleHash = '';
+    window.__atsShowCustomBg = false;
+    window.__atsBgHash = '';
+  }
+
   let needExprPack = false;
   if (window.__atsShowPortrait && window.__atsAllowExpr && payload.exprPackHash) {
     const sameExprPack = window.__atsExprPack.hash === payload.exprPackHash && Object.keys(window.__atsExprPack.imgs).length > 0;
@@ -683,6 +1033,13 @@ function pageController(payload) {
         if (!entry?.dataUrl) continue;
         const pImg = new Image();
         pImg.onload = () => {
+          const st = window.__atsBounce;
+          if (st?.exprTexMap) {
+            delete st.exprTexMap[eid];
+          }
+          if (st && (st.curEye === eid || st.curMouth === eid)) {
+            st.exprFadeStart = performance.now();
+          }
           window.__atsRefreshExpr?.();
         };
         pImg.src = entry.dataUrl;
@@ -694,9 +1051,86 @@ function pageController(payload) {
     }
   }
 
-  function getEffectiveExpr() {
-    if (!window.__atsAllowExpr) return 'default';
-    return window.__atsBaseExpr || 'default';
+  if (!window.__atsDyn) {
+    window.__atsDyn = {
+      now: performance.now(),
+      lastTickAt: performance.now(),
+      lastInputAt: performance.now(),
+      lastTypingAt: 0,
+      lastAfkMicroAt: performance.now(),
+      afkSleepy: false,
+      aiBusy: false,
+      aiPhase: 'idle',
+      lastErrCount: 0,
+      transient: null,
+      subagentMode: false,
+      manualExprCooldownUntil: 0,
+      typingBoost: 0,
+      backspaceTimes: [],
+      headTilt: 0,
+      headTiltTarget: 0,
+      ahogeX: 0,
+      ahogeVx: 0,
+      ahogeY: 0,
+      ahogeVy: 0,
+      ahogeDroop: 0,
+      earL: 0,
+      earLV: 0,
+      earR: 0,
+      earRV: 0,
+      nextEarFlickAt: performance.now() + 4500,
+      blushCur: 0,
+      blushTarget: 0,
+      glintBurst: 0,
+      tailPhase: 0,
+      breathPhase: 0,
+      lastRimCss: '',
+      transTimer: null,
+    };
+  }
+  if (window.__atsDyn.lastRimCss === undefined) window.__atsDyn.lastRimCss = '';
+  if (!window.__atsDyn.aiBusy && window.__atsShowPortrait && performance.now() - window.__atsDyn.lastInputAt >= 600000) {
+    window.__atsDyn.afkSleepy = true;
+  }
+
+  function setTransientExpr(eye, mouth, durationMs, blush = 0, reason = 'signal') {
+    const dyn = window.__atsDyn;
+    if (!dyn) return;
+    clearTimeout(dyn.transTimer);
+    dyn.transient = {
+      eye: eye || 'default',
+      mouth: mouth || eye || 'default',
+      blush,
+      reason,
+      expiresAt: durationMs > 0 ? performance.now() + durationMs : Infinity,
+    };
+    if (durationMs > 0 && Number.isFinite(durationMs)) {
+      dyn.transTimer = setTimeout(() => {
+        window.__atsRefreshExpr?.();
+      }, durationMs + 30);
+    }
+    window.__atsRefreshExpr?.();
+  }
+
+  function getActiveExprPair() {
+    const dyn = window.__atsDyn;
+    if (!window.__atsAllowExpr) return { eye: 'default', mouth: 'default', blush: 0 };
+    const now = performance.now();
+    if (dyn?.transient) {
+      if (now < dyn.transient.expiresAt) {
+        return {
+          eye: dyn.transient.eye || 'default',
+          mouth: dyn.transient.mouth || 'default',
+          blush: Number(dyn.transient.blush || 0),
+        };
+      }
+      dyn.transient = null;
+    }
+    if (dyn?.afkSleepy && !dyn.aiBusy) {
+      return { eye: 'sleepy', mouth: 'sleepy', blush: 0 };
+    }
+    const base = window.__atsBaseExpr || 'default';
+    return { eye: base, mouth: base, blush: base === 'shy' ? 0.15 : 0 };
   }
 
   if (!window.__atsBounce) {
@@ -706,43 +1140,202 @@ function pageController(payload) {
       hitAlpha: null,
       hitHash: '',
       gl: null,
+      isWebGL2: false,
+      shaderFailed: false,
       shaderVer: 0,
       prog: null,
       tex: null,
       texPrev: null,
+      emptyTex: null,
+      exprTexMap: {},
+      exprPackTexHash: '',
       texReady: false,
       texHash: '',
-      texKey: '',
-      fadeStartMs: 0,
-      fadeMode: 'expr',
-      compCanvas: null,
+      outfitWipeStart: 0,
+      exprFadeStart: 0,
+      curEye: 'default',
+      curMouth: 'default',
+      prevEye: 'default',
+      prevMouth: 'default',
+      baseW: 844,
+      baseH: 1255,
       indexCount: 0,
-      uAspect: null,
-      uTime: null,
-      uIdle: null,
-      uCount: null,
-      uImpulses: null,
-      uTex: null,
-      uTexPrev: null,
-      uFade: null,
-      uExprPulse: null,
+      impulseBuf: new Float32Array(24),
       impulses: [],
       aspect: 0.67,
       lastRenderMs: 0,
+      canvasShown: null,
+      shadowShown: null,
+      shadowSig: '',
+      shadowTmp: null,
+      rimCache: null,
+      rimCacheAt: 0,
+      rimCacheKey: '',
+      loc: {},
     };
+  }
+
+  function getAmbientRim() {
+    if (!window.__atsAmbientLight) return { r: 0, g: 0, b: 0, fr: 0, fg: 0, fb: 0, str: 0, auraAlpha: 0 };
+    if (window.__atsShowCustomBg && window.__atsBgRim && window.__atsBgRim.hash === window.__atsBgHash) {
+      return window.__atsBgRim;
+    }
+    const st = window.__atsBounce;
+    const nowMs = performance.now();
+    const dbg = typeof window.__atsDebugHour === 'number' ? String(window.__atsDebugHour) : '';
+    const cacheKey = window.__atsPhase + '|' + dbg;
+    if (st?.rimCache && st.rimCacheKey === cacheKey && nowMs - st.rimCacheAt < 5000) {
+      return st.rimCache;
+    }
+    const nightDeep = { r: 0.42, g: 0.88, b: 1.00, fr: 0.76, fg: 0.52, fb: 1.00, str: 0.64, auraAlpha: 0.42 };
+    const dawn =      { r: 1.00, g: 0.76, b: 0.38, fr: 1.00, fg: 0.56, fb: 0.74, str: 0.64, auraAlpha: 0.38 };
+    const daySun =    { r: 1.00, g: 0.89, b: 0.44, fr: 0.44, fg: 0.88, fb: 1.00, str: 0.62, auraAlpha: 0.38 };
+    const dusk =      { r: 1.00, g: 0.52, b: 0.30, fr: 0.98, fg: 0.40, fb: 0.76, str: 0.68, auraAlpha: 0.42 };
+    const nightNeon = { r: 0.46, g: 0.90, b: 1.00, fr: 0.86, fg: 0.50, fb: 1.00, str: 0.65, auraAlpha: 0.44 };
+
+    const nowD = new Date();
+    const h = typeof window.__atsDebugHour === 'number' ? window.__atsDebugHour : (nowD.getHours() + nowD.getMinutes() / 60);
+
+    const blendRim = (a, b, rawT) => {
+      const x = Math.max(0, Math.min(1, rawT));
+      const t = x * x * (3 - 2 * x);
+      return {
+        r: a.r + (b.r - a.r) * t,
+        g: a.g + (b.g - a.g) * t,
+        b: a.b + (b.b - a.b) * t,
+        fr: a.fr + (b.fr - a.fr) * t,
+        fg: a.fg + (b.fg - a.fg) * t,
+        fb: a.fb + (b.fb - a.fb) * t,
+        str: a.str + (b.str - a.str) * t,
+        auraAlpha: a.auraAlpha + (b.auraAlpha - a.auraAlpha) * t,
+      };
+    };
+
+    let res;
+    if (window.__atsPhase === 'night' && h >= 5.5 && h < 18.8) res = nightNeon;
+    else if (window.__atsPhase === 'day' && (h >= 19.2 || h < 5.2)) res = daySun;
+    else if (h >= 5.0 && h < 6.5) res = blendRim(nightDeep, dawn, (h - 5.0) / 1.5);
+    else if (h >= 6.5 && h < 9.0) res = dawn;
+    else if (h >= 9.0 && h < 10.25) res = blendRim(dawn, daySun, (h - 9.0) / 1.25);
+    else if (h >= 10.25 && h < 15.75) res = daySun;
+    else if (h >= 15.75 && h < 16.75) res = blendRim(daySun, dusk, (h - 15.75) / 1.0);
+    else if (h >= 16.75 && h < 18.5) res = dusk;
+    else if (h >= 18.5 && h < 19.5) res = blendRim(dusk, nightNeon, (h - 18.5) / 1.0);
+    else if (h >= 19.5 && h < 23.0) res = nightNeon;
+    else if (h >= 23.0) res = blendRim(nightNeon, nightDeep, (h - 23.0) / 1.0);
+    else res = nightDeep;
+
+    if (st) {
+      st.rimCache = res;
+      st.rimCacheAt = nowMs;
+      st.rimCacheKey = cacheKey;
+    }
+    return res;
+  }
+
+  function updatePortraitShadow(img, hash, rim) {
+    const st = window.__atsBounce;
+    if (!st || !shadowEl || !img || !img.complete || !img.naturalWidth) return;
+    const isDark = window.__atsPhase === 'night';
+    const hasCustomRim = rim && rim.str > 0.002;
+    const rr = hasCustomRim ? Math.round(rim.r * 255) : (isDark ? 18 : 104);
+    const rg = hasCustomRim ? Math.round(rim.g * 255) : (isDark ? 10 : 78);
+    const rb = hasCustomRim ? Math.round(rim.b * 255) : (isDark ? 36 : 176);
+    const aa = hasCustomRim ? Number((rim.auraAlpha ?? 0.38).toFixed(2)) : (isDark ? 0.38 : 0.18);
+    const dx = hasCustomRim ? (window.__atsFlipX ? 5 : -5) : 0;
+    const dy = hasCustomRim ? 6 : 12;
+    const sig = hash + '|' + (window.__atsFlipX ? 1 : 0) + '|' + rr + ',' + rg + ',' + rb + ',' + aa + '|' + dx + ',' + dy;
+    if (st.shadowSig === sig) return;
+    st.shadowSig = sig;
+    try {
+      const aspect = Math.max(0.2, img.naturalWidth / img.naturalHeight);
+      const w = 240;
+      const h = Math.round(w / aspect);
+      const cw = Math.round(w * 1.16);
+      const ch = Math.round(h * 1.16);
+      const ox = (cw - w) * 0.5;
+      const oy = (ch - h) * 0.5;
+      if (!st.shadowTmp) st.shadowTmp = document.createElement('canvas');
+      if (st.shadowTmp.width !== cw || st.shadowTmp.height !== ch) {
+        st.shadowTmp.width = cw;
+        st.shadowTmp.height = ch;
+      }
+      const tctx = st.shadowTmp.getContext('2d');
+      tctx.clearRect(0, 0, cw, ch);
+      tctx.save();
+      if (window.__atsFlipX) {
+        tctx.translate(cw, 0);
+        tctx.scale(-1, 1);
+      }
+      tctx.drawImage(img, ox, oy, w, h);
+      tctx.restore();
+      tctx.globalCompositeOperation = 'source-in';
+      tctx.fillStyle = 'rgb(' + rr + ',' + rg + ',' + rb + ')';
+      tctx.fillRect(0, 0, cw, ch);
+      tctx.globalCompositeOperation = 'source-over';
+
+      if (shadowEl.width !== cw || shadowEl.height !== ch) {
+        shadowEl.width = cw;
+        shadowEl.height = ch;
+      }
+      const sctx = shadowEl.getContext('2d');
+      sctx.clearRect(0, 0, cw, ch);
+      sctx.save();
+      sctx.globalAlpha = aa;
+      sctx.filter = 'blur(6px)';
+      sctx.drawImage(st.shadowTmp, dx * (w / 440), dy * (h / 660));
+      sctx.restore();
+    } catch {
+      // ignore
+    }
+  }
+
+  function getExprTex(gl, eid) {
+    const st = window.__atsBounce;
+    if (!st) return null;
+    if (!eid || eid === 'default') return st.emptyTex;
+    if (st.exprTexMap[eid]) return st.exprTexMap[eid];
+    const entry = window.__atsExprPack?.imgs?.[eid];
+    if (!entry?.img || !entry.img.complete || !entry.img.naturalWidth) return st.emptyTex;
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, entry.img);
+    st.exprTexMap[eid] = t;
+    return t;
   }
 
   function kickAnimLoop() {
     const st = window.__atsBounce;
-    if (!st || !imgEl || document.hidden || !window.__atsShowPortrait) return;
-    const isFading = st.fadeStartMs > 0 && performance.now() - st.fadeStartMs < 350;
-    const needStaticExpr = st.gl && getEffectiveExpr() !== 'default';
-    const needAnim = st.gl && (window.__atsIdleAmp > 0 || st.impulses.length > 0 || isFading);
-    if ((needAnim || needStaticExpr) && !window.__atsBounceRaf) {
+    const dyn = window.__atsDyn;
+    if (!st || st.shaderFailed || !imgEl || document.hidden || !window.__atsShowPortrait) return;
+    const pair = getActiveExprPair();
+    const isMixedOrExpr = pair.eye !== 'default' || pair.mouth !== 'default' || pair.blush > 0.01;
+    const now = performance.now();
+    const isExprFading = st.exprFadeStart > 0 && now - st.exprFadeStart < 340;
+    const isWiping = st.outfitWipeStart > 0 && now - st.outfitWipeStart < 380;
+    const hasRim = !!window.__atsAmbientLight;
+    const needAnim = st.gl && (
+      window.__atsIdleAmp > 0 ||
+      window.__atsMicroMotion ||
+      st.impulses.length > 0 ||
+      isExprFading ||
+      isWiping ||
+      Math.abs(dyn?.headTilt || 0) > 0.002
+    );
+    if ((needAnim || isMixedOrExpr || hasRim) && !window.__atsBounceRaf) {
       window.__atsBounceRaf = requestAnimationFrame(renderFrame);
-    } else if (!needAnim && !needStaticExpr && canvasEl) {
-      imgEl.style.visibility = 'visible';
-      canvasEl.style.display = 'none';
+    } else if (!needAnim && !isMixedOrExpr && !hasRim && canvasEl) {
+      if (st.canvasShown !== false) {
+        st.canvasShown = false;
+        imgEl.style.visibility = 'visible';
+        canvasEl.style.display = 'none';
+      }
     }
   }
 
@@ -763,6 +1356,15 @@ function pageController(payload) {
     }
   }
 
+  function clearExprTextures(gl) {
+    const st = window.__atsBounce;
+    if (!st?.exprTexMap) return;
+    for (const texObj of Object.values(st.exprTexMap)) {
+      try { gl.deleteTexture(texObj); } catch {}
+    }
+    st.exprTexMap = {};
+  }
+
   function ensureHitMapAndTexture(img, hashOverride = '', hitAlphaOverride = null) {
     const st = window.__atsBounce;
     const hash = hashOverride || img?.dataset?.hash || '';
@@ -770,22 +1372,47 @@ function pageController(payload) {
     const newAspect = img.naturalWidth / img.naturalHeight;
     const prevAspect = st.aspect;
     st.aspect = newAspect;
+    st.baseW = img.naturalWidth;
+    st.baseH = img.naturalHeight;
 
     if (st.hitHash !== hash) {
       st.hitAlpha = hitAlphaOverride || computeHitAlpha(img);
       st.hitHash = hash;
     }
 
-    if (canvasEl) {
-      if (!st.gl || st.shaderVer !== 2) {
-        const gl = st.gl || canvasEl.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: true });
+    if (canvasEl && !st.shaderFailed) {
+      if (!st.gl || st.shaderVer !== 5) {
+        let gl = st.gl;
+        let isWebGL2 = st.isWebGL2;
+        if (!gl) {
+          gl = canvasEl.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'low-power' });
+          isWebGL2 = !!gl;
+          if (!gl) {
+            gl = canvasEl.getContext('webgl', { alpha: true, premultipliedAlpha: true, antialias: false, powerPreference: 'low-power' });
+          }
+        }
         if (gl) {
+          const precHdr = [
+            '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+            'precision highp float;',
+            '#else',
+            'precision mediump float;',
+            '#endif',
+          ].join('\n');
           const vsSrc = [
+            precHdr,
             'attribute vec2 a_uv;',
             'uniform float u_aspect;',
             'uniform float u_time;',
             'uniform float u_idle;',
             'uniform float u_expr_pulse;',
+            'uniform float u_is_builtin;',
+            'uniform float u_ear_style;',
+            'uniform float u_ear_l;',
+            'uniform float u_ear_r;',
+            'uniform vec3 u_ahoge;',
+            'uniform vec2 u_tail;',
+            'uniform float u_head_tilt;',
             'uniform int u_count;',
             'uniform vec4 u_impulses[6];',
             'varying vec2 v_uv;',
@@ -794,26 +1421,51 @@ function pageController(payload) {
             '  float u = a_uv.x;',
             '  float v = a_uv.y;',
             '  float bottomAnchor = smoothstep(0.99, 0.82, v);',
-            '  float sideAnchor = smoothstep(0.0, 0.04, u) * smoothstep(1.0, 0.96, u);',
-            '  float anchors = bottomAnchor * sideAnchor;',
             '  vec2 disp = vec2(0.0);',
-            '  float headMask = smoothstep(0.36, 0.22, v) * smoothstep(0.02, 0.10, v);',
+            '  float headMask = smoothstep(0.37, 0.21, v) * smoothstep(0.01, 0.09, v);',
             '  if (abs(u_expr_pulse) > 0.0005) {',
             '    disp.y += 0.0085 * u_expr_pulse * headMask;',
             '    disp.x += (u - 0.5) * -0.006 * u_expr_pulse * headMask;',
             '  }',
+            '  if (abs(u_head_tilt) > 0.0005) {',
+            '    float hm = smoothstep(0.36, 0.22, v) * exp(-pow((u - 0.44) / 0.34, 2.0));',
+            '    vec2 relH = vec2((u - 0.44) * u_aspect, v - 0.34);',
+            '    float ang = u_head_tilt * hm;',
+            '    disp.x += (-relH.y * ang) / max(u_aspect, 0.2);',
+            '    disp.y += relH.x * ang;',
+            '  }',
             '  if (u_idle > 0.001) {',
-            '    float breath = sin(u_time * 1.75);',
+            '    float breath = sin(u_time);',
             '    vec2 cRel = vec2((u - 0.45) / 0.19, (v - 0.43) / 0.11);',
-            '    float chestMask = exp(-0.5 * dot(cRel, cRel)) * smoothstep(0.28, 0.38, v) * bottomAnchor;',
+            '    float chestMask = exp(-0.5 * dot(cRel, cRel)) * smoothstep(0.27, 0.38, v) * bottomAnchor;',
             '    disp.y += -0.0055 * u_idle * breath * chestMask;',
             '    disp += vec2((u - 0.45) * 0.8, (v - 0.43)) * (0.014 * u_idle * breath * chestMask);',
-            '    disp.y += -0.0022 * u_idle * sin(u_time * 1.75 - 0.45) * headMask;',
-            '    float outerSide = smoothstep(0.25, 0.08, u) + smoothstep(0.68, 0.88, u);',
-            '    float outerMask = clamp(outerSide, 0.0, 1.0) * smoothstep(0.22, 0.42, v) * smoothstep(0.94, 0.78, v) * sideAnchor;',
-            '    float sway = sin(u_time * 1.35 + v * 4.2 + u * 2.1);',
-            '    disp.x += 0.0068 * u_idle * sway * outerMask;',
-            '    disp.y += 0.0025 * u_idle * cos(u_time * 1.35 + v * 3.8) * outerMask;',
+            '    disp.y += -0.0022 * u_idle * sin(u_time - 0.45) * headMask;',
+            '    float outerSide = smoothstep(0.26, 0.08, u) + smoothstep(0.67, 0.88, u);',
+            '    float outerMask = clamp(outerSide, 0.0, 1.0) * smoothstep(0.18, 0.42, v) * smoothstep(0.95, 0.72, v);',
+            '    float sway = sin(u_time * 0.77 + v * 4.2 + u * 2.1) + 0.30 * sin(u_time * 1.45 + v * 6.5 - u * 1.7);',
+            '    disp.x += 0.0062 * u_idle * sway * outerMask;',
+            '    disp.y += 0.0022 * u_idle * cos(u_time * 0.77 + v * 3.8) * outerMask;',
+            '  }',
+            '  if (u_is_builtin > 0.5) {',
+            '    float aMask = smoothstep(0.08, 0.015, v) * exp(-pow((u - 0.435) / 0.072, 2.0));',
+            '    disp.x += clamp(u_ahoge.x, -0.5, 0.5) * 0.048 * aMask;',
+            '    disp.y += (clamp(u_ahoge.y, -0.5, 0.5) * 0.048 + u_ahoge.z * 0.012) * aMask;',
+            '    float earTip = u_ear_style > 0.5 ? smoothstep(0.145, 0.01, v) : smoothstep(0.14, 0.04, v);',
+            '    float earLM = u_ear_style > 0.5 ? smoothstep(0.08, 0.24, u) * smoothstep(0.38, 0.28, u) : smoothstep(0.22, 0.29, u) * smoothstep(0.39, 0.31, u);',
+            '    float earRM = u_ear_style > 0.5 ? smoothstep(0.47, 0.56, u) * smoothstep(0.66, 0.57, u) : smoothstep(0.50, 0.58, u) * smoothstep(0.68, 0.60, u);',
+            '    float bunnySway = u_ear_style > 0.5 ? sin(u_time * 1.15) * 0.0065 : 0.0;',
+            '    disp.x += (u_ear_l * 0.014 + bunnySway) * earLM * earTip;',
+            '    disp.y += (abs(u_ear_l) * 0.012 + bunnySway * 0.4) * earLM * earTip;',
+            '    disp.x += (-u_ear_r * 0.014 + bunnySway * 0.8) * earRM * earTip;',
+            '    disp.y += (abs(u_ear_r) * 0.012 - bunnySway * 0.3) * earRM * earTip;',
+            '    if (u_tail.y > 0.0005) {',
+            '      float tailMask = smoothstep(0.75, 0.82, u) * smoothstep(0.62, 0.70, v) * smoothstep(0.96, 0.88, v);',
+            '      vec2 tRel = vec2(u - 0.80, v - 0.80);',
+            '      float ang = atan(tRel.y, tRel.x);',
+            '      float w = sin(u_tail.x - ang * 1.35) * u_tail.y;',
+            '      disp += vec2(-tRel.y, tRel.x) * (w * tailMask * 1.65);',
+            '    }',
             '  }',
             '  for (int i = 0; i < 6; i++) {',
             '    if (i >= u_count) break;',
@@ -827,217 +1479,460 @@ function pageController(payload) {
             '    float env = exp(-age * 5.2) * str;',
             '    float oscY = (sin(age * 27.0 + 0.32) - 0.314 * exp(-age * 24.0)) * env;',
             '    float oscR = sin(age * 22.0 - 0.5) * env;',
-            '    float dy = -0.046 * oscY * falloff * anchors;',
-            '    if (dy < 0.0) dy *= smoothstep(0.0, 0.10, v);',
-            '    vec2 radial = vec2(rel.x / max(u_aspect, 0.2), rel.y) * (0.24 * oscR * falloff * anchors);',
+            '    float dy = -0.046 * oscY * falloff * bottomAnchor;',
+            '    vec2 radial = vec2(rel.x / max(u_aspect, 0.2), rel.y) * (0.24 * oscR * falloff * bottomAnchor);',
             '    float bias = clamp((imp.x - 0.5) * 2.0, -1.0, 1.0);',
-            '    float dx = 0.013 * sin(age * 20.0 + 0.4) * env * falloff * anchors * (abs(bias) < 0.1 ? 1.0 : -sign(bias));',
+            '    float dx = 0.013 * sin(age * 20.0 + 0.4) * env * falloff * bottomAnchor * (abs(bias) < 0.1 ? 1.0 : -sign(bias));',
             '    disp.x += dx + radial.x;',
             '    disp.y += dy + radial.y;',
             '  }',
-            '  vec2 p = vec2((u + disp.x) * 2.0 - 1.0, 1.0 - (v + disp.y) * 2.0);',
+            '  vec2 p = vec2(((u + disp.x) * 2.0 - 1.0) / 1.16, (1.0 - (v + disp.y) * 2.0) / 1.16);',
             '  gl_Position = vec4(p, 0.0, 1.0);',
             '}',
           ].join('\n');
+
           const fsSrc = [
-            'precision mediump float;',
+            precHdr,
             'uniform sampler2D u_tex;',
             'uniform sampler2D u_tex_prev;',
-            'uniform float u_fade;',
+            'uniform sampler2D u_expr_eye;',
+            'uniform sampler2D u_expr_mouth;',
+            'uniform sampler2D u_expr_prev_eye;',
+            'uniform sampler2D u_expr_prev_mouth;',
+            'uniform float u_outfit_wipe;',
+            'uniform float u_expr_fade;',
+            'uniform float u_expr_enabled;',
+            'uniform float u_is_builtin;',
+            'uniform float u_flip_x;',
+            'uniform vec4 u_expr_rect;',
+            'uniform float u_blush;',
+            'uniform float u_time;',
+            'uniform vec3 u_rim_color;',
+            'uniform vec3 u_rim_fill;',
+            'uniform float u_rim_strength;',
+            'uniform vec3 u_accent;',
+            'uniform vec2 u_glint;',
+            'uniform vec2 u_feather;',
             'varying vec2 v_uv;',
             'void main() {',
             '  vec4 cur = texture2D(u_tex, v_uv);',
-            '  if (u_fade >= 0.999) {',
-            '    gl_FragColor = cur;',
-            '  } else {',
+            '  vec4 base = cur;',
+            '  if (u_outfit_wipe < 0.999) {',
             '    vec4 prev = texture2D(u_tex_prev, v_uv);',
-            '    gl_FragColor = mix(prev, cur, u_fade);',
+            '    float diag = v_uv.x * 0.65 + v_uv.y * 0.35;',
+            '    float edge = mix(-0.18, 1.18, u_outfit_wipe);',
+            '    float mask = 1.0 - smoothstep(edge - 0.13, edge + 0.13, diag);',
+            '    base = mix(prev, cur, mask);',
+            '    float band = exp(-pow((diag - edge) / 0.055, 2.0)) * sin(u_outfit_wipe * 3.1415926);',
+            '    base.rgb += u_accent * band * 0.55 * base.a;',
             '  }',
+            '  if (u_expr_enabled > 0.5) {',
+            '    vec2 euv = (v_uv - u_expr_rect.xy) / max(u_expr_rect.zw, vec2(0.0001));',
+            '    if (euv.x >= 0.0 && euv.x <= 1.0 && euv.y >= 0.0 && euv.y <= 1.0) {',
+            '      float isM = smoothstep(0.68, 0.78, euv.y);',
+            '      vec4 eEye = isM < 0.999 ? texture2D(u_expr_eye, euv) : vec4(0.0);',
+            '      vec4 eMouth = isM > 0.001 ? texture2D(u_expr_mouth, euv) : vec4(0.0);',
+            '      vec4 eCur = mix(eEye, eMouth, isM);',
+            '      vec4 eCol = eCur;',
+            '      if (u_expr_fade < 0.999) {',
+            '        vec4 pEye = isM < 0.999 ? texture2D(u_expr_prev_eye, euv) : vec4(0.0);',
+            '        vec4 pMouth = isM > 0.001 ? texture2D(u_expr_prev_mouth, euv) : vec4(0.0);',
+            '        vec4 ePrev = mix(pEye, pMouth, isM);',
+            '        eCol = mix(ePrev, eCur, u_expr_fade);',
+            '      }',
+            '      base.rgb = eCol.rgb + base.rgb * (1.0 - eCol.a);',
+            '    }',
+            '  }',
+            '  if (u_is_builtin > 0.5 && u_blush > 0.005) {',
+            '    vec2 buv = (v_uv - u_expr_rect.xy) / max(u_expr_rect.zw, vec2(0.0001));',
+            '    if (buv.x >= 0.05 && buv.x <= 0.95 && buv.y >= 0.52 && buv.y <= 0.80) {',
+            '      vec2 dL = vec2((buv.x - 0.25) / 0.11, (buv.y - 0.67) / 0.058);',
+            '      vec2 dR = vec2((buv.x - 0.71) / 0.11, (buv.y - 0.67) / 0.058);',
+            '      float bSpot = clamp(exp(-dot(dL, dL)) + exp(-dot(dR, dR)), 0.0, 1.0);',
+            '      float skinW = smoothstep(0.72, 0.92, base.r) * smoothstep(0.15, 0.35, base.r - base.b * 0.72);',
+            '      float bw = bSpot * skinW * u_blush * 0.42 * base.a;',
+            '      base.rgb = mix(base.rgb, vec3(0.99, 0.44, 0.52) * base.a, bw);',
+            '    }',
+            '  }',
+            '  if (u_rim_strength > 0.002 && base.a > 0.03) {',
+            '    float dir = u_flip_x > 0.5 ? 1.0 : -1.0;',
+            '    float footFade = smoothstep(0.99, 0.89, v_uv.y);',
+            '    float aCrisp = texture2D(u_tex, clamp(v_uv + vec2(dir * 0.0068, -0.0052), 0.0, 1.0), 1.3).a;',
+            '    float aWide  = texture2D(u_tex, clamp(v_uv + vec2(dir * 0.0240, -0.0135), 0.0, 1.0), 3.9).a;',
+            '    float aBack  = texture2D(u_tex, clamp(v_uv + vec2(-dir * 0.0135, -0.0055), 0.0, 1.0), 2.6).a;',
+            '    float rimCrisp = clamp(base.a - aCrisp, 0.0, 1.0) * footFade;',
+            '    float rimSoft  = clamp(base.a - aWide, 0.0, 1.0) * footFade;',
+            '    float rimBack  = clamp(base.a - aBack, 0.0, 1.0) * footFade;',
+            '    vec2 fRel = vec2((v_uv.x - 0.455) / 0.115, (v_uv.y - 0.242) / 0.085);',
+            '    float faceSafe = 1.0 - 0.85 * exp(-dot(fRel, fRel));',
+            '    rimSoft *= faceSafe;',
+            '    float chatSide = u_flip_x > 0.5 ? v_uv.x : (1.0 - v_uv.x);',
+            '    float shimmer = 0.90 + 0.10 * sin(u_time * 0.95);',
+            '    float topWash = smoothstep(0.60, 0.02, v_uv.y) * smoothstep(0.12, 0.88, chatSide) * faceSafe * shimmer;',
+            '    vec3 c = base.rgb / max(base.a, 0.001);',
+            '    float tintW = clamp(rimSoft * 0.52 + topWash * 0.34, 0.0, 0.62) * u_rim_strength;',
+            '    c = mix(c, clamp(c * (0.68 + 0.62 * u_rim_color), 0.0, 1.0), tintW);',
+            '    vec3 glow = u_rim_color * (rimCrisp * 1.15 + rimSoft * 0.56 + topWash * 0.22)',
+            '              + u_rim_fill  * (rimBack  * 0.55 + topWash * 0.10);',
+            '    c = clamp(c + (vec3(1.0) - c * 0.68) * glow * u_rim_strength, 0.0, 1.0);',
+            '    base.rgb = c * base.a;',
+            '  }',
+            '  if (u_is_builtin > 0.5 && u_glint.x > 0.01 && base.a > 0.1) {',
+            '    vec2 starCenter = vec2(0.5805, 0.1535);',
+            '    vec2 gs = (v_uv - starCenter) / vec2(0.056, 0.046);',
+            '    float gr = dot(gs, gs);',
+            '    if (gr < 1.8) {',
+            '      float luma = dot(base.rgb / max(base.a, 0.001), vec3(0.299, 0.587, 0.114));',
+            '      float bandPos = (gs.x * 0.72 + gs.y * 0.68) - u_glint.y * 1.15;',
+            '      float band = exp(-bandPos * bandPos * 13.0) * exp(-gr * 1.25) * smoothstep(0.45, 0.84, luma);',
+            '      vec2 fc = (v_uv - starCenter) * vec2(1.0, 1.487);',
+            '      float flareEnv = exp(-u_glint.y * u_glint.y * 4.5);',
+            '      float cross = (exp(-abs(fc.y) * 205.0) * exp(-abs(fc.x) * 24.0)',
+            '                   + exp(-abs(fc.x) * 205.0) * exp(-abs(fc.y) * 24.0)) * flareEnv;',
+            '      float sparkle = (band * 0.78 + cross * 0.96) * u_glint.x;',
+            '      vec3 glintCol = mix(vec3(1.0, 0.99, 1.0), u_rim_color * 0.45 + vec3(0.65), 0.35);',
+            '      base.rgb = clamp(base.rgb + glintCol * sparkle * base.a, 0.0, base.a);',
+            '    }',
+            '  }',
+            '  float fAlpha = 1.0;',
+            '  if (u_feather.x > 0.001) {',
+            '    float screenX = u_flip_x > 0.5 ? (1.0 - v_uv.x) : v_uv.x;',
+            '    fAlpha *= smoothstep(0.0, u_feather.x, screenX);',
+            '  }',
+            '  if (u_feather.y > 0.001) {',
+            '    fAlpha *= smoothstep(1.0, 1.0 - u_feather.y, v_uv.y);',
+            '  }',
+            '  gl_FragColor = base * fAlpha;',
             '}',
           ].join('\n');
+
           const compile = (type, src) => {
             const sh = gl.createShader(type);
             gl.shaderSource(sh, src);
             gl.compileShader(sh);
+            if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+              console.warn('[agy-theme-studio] shader compile failed:', gl.getShaderInfoLog(sh));
+              gl.deleteShader(sh);
+              return null;
+            }
             return sh;
           };
-          const prog = gl.createProgram();
-          gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSrc));
-          gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSrc));
-          gl.linkProgram(prog);
-          gl.useProgram(prog);
-
-          const cols = 20;
-          const rows = 28;
-          const verts = [];
-          const idx = [];
-          for (let r = 0; r <= rows; r++) {
-            for (let c = 0; c <= cols; c++) {
-              verts.push(c / cols, r / rows);
+          const vs = compile(gl.VERTEX_SHADER, vsSrc);
+          const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
+          const prog = vs && fs ? gl.createProgram() : null;
+          let linked = false;
+          if (prog) {
+            gl.attachShader(prog, vs);
+            gl.attachShader(prog, fs);
+            gl.linkProgram(prog);
+            linked = !!gl.getProgramParameter(prog, gl.LINK_STATUS);
+            if (!linked) {
+              console.warn('[agy-theme-studio] program link failed:', gl.getProgramInfoLog(prog));
             }
           }
-          for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-              const a = r * (cols + 1) + c;
-              const b = a + 1;
-              const d = a + cols + 1;
-              const e = d + 1;
-              idx.push(a, d, b, b, d, e);
+          if (!linked) {
+            st.shaderFailed = true;
+            st.gl = null;
+          } else {
+            gl.useProgram(prog);
+            const cols = 36;
+            const rows = 52;
+            const verts = [];
+            const idx = [];
+            for (let r = 0; r <= rows; r++) {
+              for (let c = 0; c <= cols; c++) {
+                verts.push(c / cols, r / rows);
+              }
             }
+            for (let r = 0; r < rows; r++) {
+              for (let c = 0; c < cols; c++) {
+                const a = r * (cols + 1) + c;
+                const b = a + 1;
+                const d = a + cols + 1;
+                const e = d + 1;
+                idx.push(a, d, b, b, d, e);
+              }
+            }
+            if (st.vb) { try { gl.deleteBuffer(st.vb); } catch {} }
+            if (st.ib) { try { gl.deleteBuffer(st.ib); } catch {} }
+            const vb = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+            const locUv = gl.getAttribLocation(prog, 'a_uv');
+            gl.enableVertexAttribArray(locUv);
+            gl.vertexAttribPointer(locUv, 2, gl.FLOAT, false, 0, 0);
+
+            const ib = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+
+            if (st.prog && st.prog !== prog) {
+              try { gl.deleteProgram(st.prog); } catch {}
+            }
+            st.gl = gl;
+            st.isWebGL2 = isWebGL2;
+            st.shaderVer = 5;
+            st.prog = prog;
+            st.vb = vb;
+            st.ib = ib;
+            st.indexCount = idx.length;
+            const u = {};
+            for (const name of [
+              'u_aspect', 'u_time', 'u_idle', 'u_expr_pulse', 'u_is_builtin', 'u_ear_style',
+              'u_ear_l', 'u_ear_r', 'u_ahoge', 'u_tail', 'u_head_tilt', 'u_count', 'u_impulses',
+              'u_tex', 'u_tex_prev', 'u_expr_eye', 'u_expr_mouth', 'u_expr_prev_eye', 'u_expr_prev_mouth',
+              'u_outfit_wipe', 'u_expr_fade', 'u_expr_enabled', 'u_flip_x', 'u_expr_rect', 'u_blush',
+              'u_rim_color', 'u_rim_fill', 'u_rim_strength', 'u_accent', 'u_glint', 'u_feather',
+            ]) {
+              u[name] = gl.getUniformLocation(prog, name);
+            }
+            st.loc = u;
+
+            if (!st.tex) st.tex = gl.createTexture();
+            if (!st.texPrev) st.texPrev = gl.createTexture();
+            if (!st.emptyTex) st.emptyTex = gl.createTexture();
+            const initBlank = (texObj) => {
+              gl.bindTexture(gl.TEXTURE_2D, texObj);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+              gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
+            };
+            initBlank(st.texPrev);
+            initBlank(st.emptyTex);
+            st.texReady = false;
+            st.texHash = '';
           }
-          const vb = gl.createBuffer();
-          gl.bindBuffer(gl.ARRAY_BUFFER, vb);
-          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
-          const loc = gl.getAttribLocation(prog, 'a_uv');
-          gl.enableVertexAttribArray(loc);
-          gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-
-          const ib = gl.createBuffer();
-          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
-          gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
-
-          st.gl = gl;
-          st.shaderVer = 2;
-          st.prog = prog;
-          st.indexCount = idx.length;
-          st.uAspect = gl.getUniformLocation(prog, 'u_aspect');
-          st.uTime = gl.getUniformLocation(prog, 'u_time');
-          st.uIdle = gl.getUniformLocation(prog, 'u_idle');
-          st.uExprPulse = gl.getUniformLocation(prog, 'u_expr_pulse');
-          st.uCount = gl.getUniformLocation(prog, 'u_count');
-          st.uImpulses = gl.getUniformLocation(prog, 'u_impulses');
-          st.uTex = gl.getUniformLocation(prog, 'u_tex');
-          st.uTexPrev = gl.getUniformLocation(prog, 'u_tex_prev');
-          st.uFade = gl.getUniformLocation(prog, 'u_fade');
-          if (!st.tex) st.tex = gl.createTexture();
-          if (!st.texPrev) st.texPrev = gl.createTexture();
-          // 用 1x1 透明像素占位初始化 texPrev，避免切穿搭时同步上传两遍大图
-          gl.bindTexture(gl.TEXTURE_2D, st.texPrev);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
-          st.texReady = false;
-          st.texKey = '';
-          st.texHash = '';
         }
       }
-      const targetExpr = getEffectiveExpr();
-      const exprEntry = targetExpr !== 'default' ? window.__atsExprPack?.imgs?.[targetExpr] : null;
-      const canUseExpr = !!(exprEntry?.img && exprEntry.img.complete && exprEntry.img.naturalWidth > 0);
-      const actualExpr = canUseExpr ? targetExpr : 'default';
-      const anchor = window.__atsExprAnchor || { dx: 0, dy: 0, scale: 1 };
-      const aDx = Number(anchor.dx) || 0;
-      const aDy = Number(anchor.dy) || 0;
-      const aScale = Number(anchor.scale) > 0 ? Number(anchor.scale) : 1;
-      const nextTexKey = `${hash}|${actualExpr}|${aDx}:${aDy}:${aScale}`;
-      if (st.gl && st.texKey !== nextTexKey) {
+
+      if (st.gl && !st.shaderFailed) {
         const gl = st.gl;
-        if (canvasEl.width !== img.naturalWidth || canvasEl.height !== img.naturalHeight || st.texHash !== hash) {
-          canvasEl.width = img.naturalWidth;
-          canvasEl.height = img.naturalHeight;
+        if (st.exprPackTexHash !== (window.__atsExprPack?.hash || '')) {
+          clearExprTextures(gl);
+          st.exprPackTexHash = window.__atsExprPack?.hash || '';
+        }
+        const rawH = Math.round(img.naturalHeight * 1.16);
+        const dispH = canvasEl.parentElement?.clientHeight || 660;
+        const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+        const scaleMul = Math.max(1, Number(window.__atsPortraitScale || 1));
+        const maxPhysH = Math.round(dispH * 1.16 * dpr * scaleMul);
+        const targetH = Math.max(256, Math.min(rawH, maxPhysH));
+        const targetW = Math.max(128, Math.round(targetH * (img.naturalWidth / img.naturalHeight)));
+        if (canvasEl.width !== targetW || canvasEl.height !== targetH || st.texHash !== hash) {
+          canvasEl.width = targetW;
+          canvasEl.height = targetH;
           gl.viewport(0, 0, canvasEl.width, canvasEl.height);
         }
-        let texSource = img;
-        if (canUseExpr) {
-          if (!st.compCanvas) st.compCanvas = document.createElement('canvas');
-          if (st.compCanvas.width !== img.naturalWidth || st.compCanvas.height !== img.naturalHeight) {
-            st.compCanvas.width = img.naturalWidth;
-            st.compCanvas.height = img.naturalHeight;
+
+        if (st.texHash !== hash) {
+          const uploadBodyTex = (texObj) => {
+            gl.bindTexture(gl.TEXTURE_2D, texObj);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+            if (st.isWebGL2) {
+              gl.generateMipmap(gl.TEXTURE_2D);
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+            } else {
+              gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            }
+          };
+          const canWipe = st.texReady && prevAspect > 0 && Math.abs(prevAspect - newAspect) < 0.04;
+          if (canWipe) {
+            const oldTex = st.tex;
+            st.tex = st.texPrev;
+            st.texPrev = oldTex;
+            uploadBodyTex(st.tex);
+            st.outfitWipeStart = performance.now();
+          } else {
+            uploadBodyTex(st.tex);
+            st.outfitWipeStart = 0;
+            st.texReady = true;
           }
-          const cctx = st.compCanvas.getContext('2d');
-          cctx.clearRect(0, 0, st.compCanvas.width, st.compCanvas.height);
-          cctx.drawImage(img, 0, 0);
-          cctx.drawImage(
-            exprEntry.img,
-            exprEntry.x + aDx,
-            exprEntry.y + aDy,
-            exprEntry.img.naturalWidth * aScale,
-            exprEntry.img.naturalHeight * aScale
-          );
-          texSource = st.compCanvas;
+          st.texHash = hash;
         }
-        const uploadTex = (texObj) => {
-          gl.bindTexture(gl.TEXTURE_2D, texObj);
-          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texSource);
-        };
-        const isSameBase = st.texHash === hash && st.texReady;
-        const canOutfitFade = !isSameBase && st.texReady && prevAspect > 0 && Math.abs(prevAspect - newAspect) < 0.03;
-        if (isSameBase || canOutfitFade) {
-          const oldTex = st.tex;
-          st.tex = st.texPrev;
-          st.texPrev = oldTex;
-          uploadTex(st.tex);
-          st.fadeMode = isSameBase ? 'expr' : 'outfit';
-          st.fadeStartMs = performance.now();
-        } else {
-          uploadTex(st.tex);
-          st.fadeStartMs = 0;
-          st.texReady = true;
-        }
-        st.texHash = hash;
-        st.texKey = nextTexKey;
       }
     }
+    updatePortraitShadow(img, hash, getAmbientRim());
     kickAnimLoop();
+  }
+
+  function stepDynamics(now) {
+    const dyn = window.__atsDyn;
+    if (!dyn) return;
+    const dt = Math.min(0.08, Math.max(0.001, (now - dyn.lastTickAt) / 1000));
+    dyn.lastTickAt = now;
+
+    // 挂机自主小剧场（3 分钟小动作，10 分钟进入轻打盹）
+    const idleDur = now - dyn.lastInputAt;
+    if (!dyn.aiBusy && idleDur >= 600000 && !dyn.afkSleepy) {
+      dyn.afkSleepy = true;
+    } else if (!dyn.aiBusy && !dyn.afkSleepy && idleDur >= 180000 && now - dyn.lastAfkMicroAt > 24000) {
+      dyn.lastAfkMicroAt = now;
+      dyn.earRV += (Math.random() > 0.5 ? 1 : -1) * 3.8;
+      dyn.ahogeVy -= 2.2;
+      dyn.headTiltTarget = (Math.random() - 0.5) * 0.04;
+    }
+
+    // 连续呼吸相位累积（确保入睡慢呼吸与惊醒切回零跳变）
+    dyn.breathPhase = (dyn.breathPhase + dt * (dyn.afkSleepy ? 1.08 : 1.75)) % 6283.1853;
+
+    // 打字热度与歪头衰减
+    if (now - dyn.lastTypingAt > 900) {
+      dyn.typingBoost = Math.max(0, dyn.typingBoost - dt * 1.4);
+    }
+
+    const toChatX = window.__atsFlipX ? 1.0 : -1.0;
+    let baseTilt = 0;
+    if (dyn.aiPhase === 'waiting') baseTilt = toChatX * 0.042;
+    else if (dyn.typingBoost > 0.05) baseTilt = toChatX * (0.022 + 0.015 * dyn.typingBoost);
+    const tiltTarget = baseTilt + dyn.headTiltTarget * 0.6;
+    dyn.headTilt += (tiltTarget - dyn.headTilt) * Math.min(1, dt * 5.0);
+    dyn.headTiltTarget *= Math.exp(-dt * 1.6);
+
+    // 呆毛二阶弹簧（发送/开心弹性跃动，困/报错轻低垂）
+    const droopGoal = dyn.afkSleepy || dyn.aiPhase === 'waiting' ? 0.55 : dyn.transient?.eye === 'teary' || dyn.transient?.eye === 'dizzy' ? 0.72 : 0.0;
+    dyn.ahogeDroop += (droopGoal - dyn.ahogeDroop) * Math.min(1, dt * 4.0);
+    const axEq = dyn.typingBoost > 0.1 ? Math.sin(now * 0.018) * 0.16 * dyn.typingBoost : 0;
+    dyn.ahogeVx = Math.max(-7, Math.min(7, dyn.ahogeVx + ((axEq - dyn.ahogeX) * 140 - dyn.ahogeVx * 11) * dt));
+    dyn.ahogeX += dyn.ahogeVx * dt;
+    dyn.ahogeVy = Math.max(-7, Math.min(7, dyn.ahogeVy + ((0 - dyn.ahogeY) * 160 - dyn.ahogeVy * 11) * dt));
+    dyn.ahogeY += dyn.ahogeVy * dt;
+
+    // 猫耳/兔耳随机单侧轻颤弹簧
+    if (window.__atsMicroMotion && now >= dyn.nextEarFlickAt && !dyn.afkSleepy) {
+      dyn.nextEarFlickAt = now + 3800 + Math.random() * 5500;
+      if (Math.random() > 0.45) dyn.earLV += 4.5 + Math.random() * 2.5;
+      else dyn.earRV += 4.5 + Math.random() * 2.5;
+    }
+    dyn.earLV += (-dyn.earL * 180 - dyn.earLV * 14) * dt;
+    dyn.earL += dyn.earLV * dt;
+    dyn.earRV += (-dyn.earR * 180 - dyn.earRV * 14) * dt;
+    dyn.earR += dyn.earRV * dt;
+
+    // 猫尾外弧情绪节奏
+    let tailSpeed = 2.0;
+    let tailAmp = window.__atsMicroMotion ? 0.015 : 0;
+    if (dyn.afkSleepy) {
+      tailSpeed = 0.7;
+      tailAmp = 0.004;
+    } else if (dyn.aiPhase === 'subagents') {
+      tailSpeed = 3.2;
+      tailAmp = 0.022;
+    } else if (dyn.aiPhase === 'thinking' || dyn.aiPhase === 'tool') {
+      tailSpeed = 3.6;
+      tailAmp = 0.020;
+    } else if (dyn.transient?.eye === 'pout') {
+      tailSpeed = 6.2;
+      tailAmp = 0.024;
+    }
+    dyn.tailPhase += dt * tailSpeed;
+
+    // 程序化渐进颊红与星饰流光
+    const pair = getActiveExprPair();
+    dyn.blushTarget = Math.max(pair.blush || 0, dyn.transient?.blush || 0);
+    dyn.blushCur += (dyn.blushTarget - dyn.blushCur) * Math.min(1, dt * 4.5);
+    dyn.glintBurst *= Math.exp(-dt * 2.8);
+
+    return { dt, pair, tailAmp };
   }
 
   function renderFrame() {
     const st = window.__atsBounce;
-    if (!st || !imgEl) {
+    const dyn = window.__atsDyn;
+    if (!st || st.shaderFailed || !imgEl) {
       window.__atsBounceRaf = 0;
       return;
     }
     const now = performance.now();
-    st.impulses = st.impulses.filter((item) => now - item.t0 < 950);
-    const hasImpulses = st.impulses.length > 0;
-    const idleAmp = window.__atsIdleAmp || 0;
-    const activeExpr = getEffectiveExpr();
-    const fadeAgeMs = st.fadeStartMs > 0 ? Math.max(0, now - st.fadeStartMs) : 9999;
-    const isFading = st.fadeStartMs > 0 && fadeAgeMs < (st.fadeMode === 'expr' ? 350 : 250);
-    if (!isFading) st.fadeStartMs = 0;
-    const fadeRaw = isFading ? Math.min(1, fadeAgeMs / (st.fadeMode === 'expr' ? 260 : 220)) : 1;
-    const fadeT = 1 - Math.pow(1 - fadeRaw, 3);
-    const exprPulse = isFading && st.fadeMode === 'expr'
-      ? Math.sin((fadeAgeMs / 1000) * 18.0) * Math.exp(-(fadeAgeMs / 1000) * 9.5)
-      : 0;
-
     if (document.hidden || !window.__atsShowPortrait) {
-      imgEl.style.visibility = 'visible';
-      if (canvasEl) canvasEl.style.display = 'none';
+      if (st.canvasShown !== false) {
+        st.canvasShown = false;
+        imgEl.style.visibility = 'visible';
+        if (canvasEl) canvasEl.style.display = 'none';
+      }
+      if (shadowEl && st.shadowShown !== false) {
+        st.shadowShown = false;
+        shadowEl.style.display = 'none';
+      }
       window.__atsBounceRaf = 0;
       return;
     }
+    if (shadowEl && st.shadowShown !== true) {
+      st.shadowShown = true;
+      shadowEl.style.display = 'block';
+    }
 
-    if (!hasImpulses && !isFading && idleAmp <= 0) {
-      if (activeExpr !== 'default' && st.gl && canvasEl && st.texHash === (imgEl.dataset.hash || '')) {
-        const gl = st.gl;
-        gl.useProgram(st.prog);
-        gl.clearColor(0, 0, 0, 0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, st.tex);
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, st.texPrev || st.tex);
-        gl.uniform1i(st.uTex, 0);
-        gl.uniform1i(st.uTexPrev, 1);
-        gl.uniform1f(st.uFade, 1.0);
-        gl.uniform1f(st.uExprPulse, 0);
-        gl.uniform1f(st.uAspect, st.aspect);
-        gl.uniform1f(st.uTime, now / 1000);
-        gl.uniform1f(st.uIdle, 0);
-        gl.uniform1i(st.uCount, 0);
-        gl.drawElements(gl.TRIANGLES, st.indexCount, gl.UNSIGNED_SHORT, 0);
-        canvasEl.style.display = 'block';
-        imgEl.style.visibility = 'hidden';
-      } else {
+    // 常态动效节流至 ~60fps，交互/转场突发期跑满原生刷新率
+    const prelimHighRate =
+      st.impulses.length > 0 ||
+      st.outfitWipeStart > 0 ||
+      st.exprFadeStart > 0 ||
+      dyn.glintBurst > 0.05;
+    if (!prelimHighRate && now - st.lastRenderMs < 15.5) {
+      window.__atsBounceRaf = requestAnimationFrame(renderFrame);
+      return;
+    }
+    st.lastRenderMs = now;
+
+    const step = stepDynamics(now);
+    const pair = step.pair;
+
+    st.impulses = st.impulses.filter((item) => now - item.t0 < 950);
+    const hasImpulses = st.impulses.length > 0;
+    const idleAmp = window.__atsIdleAmp || 0;
+    const wipeAgeMs = st.outfitWipeStart > 0 ? Math.max(0, now - st.outfitWipeStart) : 9999;
+    const isWiping = st.outfitWipeStart > 0 && wipeAgeMs < 380;
+    if (!isWiping) st.outfitWipeStart = 0;
+    const wipeRaw = isWiping ? Math.min(1, wipeAgeMs / 340) : 1;
+    const wipeT = 1 - Math.pow(1 - wipeRaw, 3);
+
+    // 检查双层表情是否发生变化（与持久态/瞬态分离，绝不被 3 秒 syncAll 覆写）
+    const wantKey = pair.eye + '+' + pair.mouth;
+    if (window.__atsAllowExpr && wantKey !== st.exprKey && st.texReady) {
+      st.prevEye = st.curEye || 'default';
+      st.prevMouth = st.curMouth || 'default';
+      st.curEye = pair.eye;
+      st.curMouth = pair.mouth;
+      st.exprKey = wantKey;
+      st.exprFadeStart = now;
+    } else if (!st.exprKey) {
+      st.curEye = pair.eye;
+      st.curMouth = pair.mouth;
+      st.prevEye = pair.eye;
+      st.prevMouth = pair.mouth;
+      st.exprKey = wantKey;
+    }
+
+    const exprAgeMs = st.exprFadeStart > 0 ? Math.max(0, now - st.exprFadeStart) : 9999;
+    const isExprFading = st.exprFadeStart > 0 && exprAgeMs < 340;
+    if (!isExprFading) st.exprFadeStart = 0;
+    const exprFadeRaw = isExprFading ? Math.min(1, exprAgeMs / 260) : 1;
+    const exprFadeT = 1 - Math.pow(1 - exprFadeRaw, 3);
+    const exprPulse = isExprFading
+      ? Math.sin((exprAgeMs / 1000) * 18.0) * Math.exp(-(exprAgeMs / 1000) * 9.5)
+      : 0;
+
+    const isBuiltin = !!window.__atsOutfitKey;
+    const hasRim = !!window.__atsAmbientLight;
+    const hasDynamicMicro = window.__atsMicroMotion && (idleAmp > 0 || step.tailAmp > 0);
+    const hasSpring =
+      Math.abs(dyn.ahogeX) > 0.0005 ||
+      Math.abs(dyn.ahogeY) > 0.0005 ||
+      Math.abs(dyn.earL) > 0.01 ||
+      Math.abs(dyn.earR) > 0.01 ||
+      Math.abs(dyn.blushCur - dyn.blushTarget) > 0.01;
+    const hasAnyExpr = pair.eye !== 'default' || pair.mouth !== 'default' || dyn.blushCur > 0.01;
+    const activeAnim = hasImpulses || isWiping || isExprFading || hasDynamicMicro || hasSpring || idleAmp > 0 || Math.abs(dyn.headTilt) > 0.002 || dyn.glintBurst > 0.02;
+
+    if (!activeAnim && !hasAnyExpr && !hasRim) {
+      if (st.canvasShown !== false) {
+        st.canvasShown = false;
         imgEl.style.visibility = 'visible';
         if (canvasEl) canvasEl.style.display = 'none';
       }
@@ -1045,16 +1940,10 @@ function pageController(payload) {
       return;
     }
 
-    // 待机呼吸模式节流到 ~30fps 省电；点击弹跳与表情/穿搭过渡保持 60fps 丝滑
-    if (!hasImpulses && !isFading && now - st.lastRenderMs < 32) {
-      window.__atsBounceRaf = requestAnimationFrame(renderFrame);
-      return;
-    }
-    st.lastRenderMs = now;
-
     if (st.gl && canvasEl && st.texHash === (imgEl.dataset.hash || '')) {
       const gl = st.gl;
-      const flat = new Float32Array(24);
+      const u = st.loc;
+      const flat = st.impulseBuf;
       const count = Math.min(6, st.impulses.length);
       for (let i = 0; i < count; i++) {
         const it = st.impulses[i];
@@ -1063,52 +1952,290 @@ function pageController(payload) {
         flat[i * 4 + 2] = Math.max(0, (now - it.t0) / 1000);
         flat[i * 4 + 3] = it.str;
       }
+
       gl.useProgram(st.prog);
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);
+
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, st.tex);
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, st.texPrev || st.tex);
-      gl.uniform1i(st.uTex, 0);
-      gl.uniform1i(st.uTexPrev, 1);
-      gl.uniform1f(st.uFade, fadeT);
-      gl.uniform1f(st.uExprPulse, exprPulse);
-      gl.uniform1f(st.uAspect, st.aspect);
-      gl.uniform1f(st.uTime, now / 1000);
-      gl.uniform1f(st.uIdle, idleAmp);
-      gl.uniform1i(st.uCount, count);
-      gl.uniform4fv(st.uImpulses, flat);
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, getExprTex(gl, st.curEye));
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, getExprTex(gl, st.curMouth));
+      gl.activeTexture(gl.TEXTURE4);
+      gl.bindTexture(gl.TEXTURE_2D, getExprTex(gl, st.prevEye));
+      gl.activeTexture(gl.TEXTURE5);
+      gl.bindTexture(gl.TEXTURE_2D, getExprTex(gl, st.prevMouth));
+
+      gl.uniform1i(u.u_tex, 0);
+      gl.uniform1i(u.u_tex_prev, 1);
+      gl.uniform1i(u.u_expr_eye, 2);
+      gl.uniform1i(u.u_expr_mouth, 3);
+      gl.uniform1i(u.u_expr_prev_eye, 4);
+      gl.uniform1i(u.u_expr_prev_mouth, 5);
+
+      gl.uniform1f(u.u_aspect, st.aspect);
+      gl.uniform1f(u.u_time, dyn.breathPhase);
+      gl.uniform1f(u.u_idle, idleAmp);
+      gl.uniform1f(u.u_expr_pulse, exprPulse);
+      gl.uniform1f(u.u_is_builtin, isBuiltin ? 1.0 : 0.0);
+      gl.uniform1f(u.u_ear_style, window.__atsOutfitKey === 'bunny' ? 1.0 : 0.0);
+      gl.uniform1f(u.u_ear_l, window.__atsMicroMotion ? dyn.earL : 0);
+      gl.uniform1f(u.u_ear_r, window.__atsMicroMotion ? dyn.earR : 0);
+      gl.uniform3f(u.u_ahoge, window.__atsMicroMotion ? dyn.ahogeX : 0, window.__atsMicroMotion ? dyn.ahogeY : 0, dyn.ahogeDroop);
+      gl.uniform2f(u.u_tail, dyn.tailPhase, step.tailAmp);
+      gl.uniform1f(u.u_head_tilt, window.__atsMicroMotion ? dyn.headTilt : 0);
+      gl.uniform1i(u.u_count, count);
+      gl.uniform4fv(u.u_impulses, flat);
+
+      gl.uniform1f(u.u_outfit_wipe, wipeT);
+      gl.uniform1f(u.u_expr_fade, exprFadeT);
+      const exprActive = window.__atsAllowExpr && isBuiltin && (st.curEye !== 'default' || st.curMouth !== 'default' || isExprFading);
+      gl.uniform1f(u.u_expr_enabled, exprActive ? 1.0 : 0.0);
+      gl.uniform1f(u.u_flip_x, window.__atsFlipX ? 1.0 : 0.0);
+
+      const anchor = window.__atsExprAnchor || { dx: 0, dy: 0, scale: 1 };
+      const refEntry = window.__atsExprPack?.imgs?.wink || Object.values(window.__atsExprPack?.imgs || {})[0];
+      const rx = (Number(refEntry?.x ?? 265) + Number(anchor.dx || 0)) / Math.max(st.baseW, 1);
+      const ry = (Number(refEntry?.y ?? 195) + Number(anchor.dy || 0)) / Math.max(st.baseH, 1);
+      const rw = (210 * (Number(anchor.scale) > 0 ? Number(anchor.scale) : 1)) / Math.max(st.baseW, 1);
+      const rh = (160 * (Number(anchor.scale) > 0 ? Number(anchor.scale) : 1)) / Math.max(st.baseH, 1);
+      gl.uniform4f(u.u_expr_rect, rx, ry, rw, rh);
+
+      gl.uniform1f(u.u_blush, dyn.blushCur);
+      const rim = getAmbientRim();
+      gl.uniform3f(u.u_rim_color, rim.r, rim.g, rim.b);
+      gl.uniform3f(u.u_rim_fill, rim.fr ?? rim.r, rim.fg ?? rim.g, rim.fb ?? rim.b);
+      gl.uniform1f(u.u_rim_strength, rim.str);
+      updatePortraitShadow(imgEl, st.texHash, rim);
+
+      const acc = window.__atsAccentRgb || [0.49, 0.36, 0.90];
+      gl.uniform3f(u.u_accent, acc[0], acc[1], acc[2]);
+
+      const sec = now / 1000;
+      const period = dyn.aiBusy ? 2.4 : 4.2;
+      const sweepDur = 1.15;
+      const cyclePos = sec % period;
+      const isSweeping = cyclePos < sweepDur;
+      const periodicSweep = isSweeping ? (cyclePos / sweepDur) * 2.0 - 1.0 : -2.0;
+      const periodicAmp = isSweeping ? Math.sin((cyclePos / sweepDur) * Math.PI) * 1.1 : 0;
+      const burstAmp = dyn.glintBurst > 0.02 ? Math.min(1.25, dyn.glintBurst * 1.25) : 0;
+      const glintAmp = window.__atsAmbientLight ? Math.min(1.25, Math.max(periodicAmp, burstAmp)) : 0;
+      const glintSweep = burstAmp > periodicAmp ? (1.0 - Math.min(1.0, dyn.glintBurst)) * 0.55 : periodicSweep;
+      gl.uniform2f(u.u_glint, glintAmp, glintSweep);
+
+      const ft = window.__atsFeather || { left: 0.14, bottom: 0.12 };
+      gl.uniform2f(u.u_feather, ft.left, ft.bottom);
+
       gl.drawElements(gl.TRIANGLES, st.indexCount, gl.UNSIGNED_SHORT, 0);
-      canvasEl.style.display = 'block';
-      imgEl.style.visibility = 'hidden';
-      window.__atsBounceRaf = requestAnimationFrame(renderFrame);
+      if (st.canvasShown !== true) {
+        st.canvasShown = true;
+        canvasEl.style.display = 'block';
+        imgEl.style.visibility = 'hidden';
+      }
+
+      if (activeAnim) {
+        window.__atsBounceRaf = requestAnimationFrame(renderFrame);
+      } else {
+        window.__atsBounceRaf = 0;
+      }
     } else {
-      // 纹理未就绪（例如昼夜换装解码中）时确保原生 img 保持可见，避免偶发消失
-      imgEl.style.visibility = 'visible';
-      if (canvasEl) canvasEl.style.display = 'none';
+      if (st.canvasShown !== false) {
+        st.canvasShown = false;
+        imgEl.style.visibility = 'visible';
+        if (canvasEl) canvasEl.style.display = 'none';
+      }
       window.__atsBounceRaf = 0;
     }
   }
 
+  function wakeFromAfk() {
+    const dyn = window.__atsDyn;
+    if (!dyn) return;
+    dyn.lastInputAt = performance.now();
+    if (!dyn.afkSleepy) return;
+    dyn.afkSleepy = false;
+    dyn.ahogeVy -= 5.2;
+    dyn.earLV += 5.5;
+    dyn.earRV += 4.5;
+    setTransientExpr('wink', 'shy', 2400, 0.65, 'afk_wake');
+    const st = window.__atsBounce;
+    if (st?.gl) {
+      if (st.impulses.length >= 6) st.impulses.shift();
+      st.impulses.push({ ux: 0.45, uy: 0.25, t0: performance.now(), str: 0.28 });
+    }
+    kickAnimLoop();
+  }
+
+  window.__atsOnSignal = (ev) => {
+    if (!window.__atsAiCompanion || !window.__atsDyn || !ev) return;
+    const dyn = window.__atsDyn;
+    const now = performance.now();
+    const inManualLock = dyn.manualExprCooldownUntil && now < dyn.manualExprCooldownUntil;
+    if (ev.type === 'ai_state') {
+      const wasSubagent = !!dyn.subagentMode;
+      dyn.aiBusy = !!ev.busy;
+      dyn.aiPhase = ev.phase || 'idle';
+      dyn.subagentMode = ev.phase === 'subagents';
+      if (dyn.aiBusy && dyn.afkSleepy) dyn.afkSleepy = false;
+      if (dyn.subagentMode && !wasSubagent && !inManualLock) {
+        setTransientExpr('smug', 'smug', 3200, 0, 'subagents');
+      }
+      window.__atsRefreshExpr?.();
+      kickAnimLoop();
+    } else if (ev.type === 'user_sent') {
+      wakeFromAfk();
+      dyn.ahogeVy -= 3.8;
+      dyn.earLV += 3.5;
+      kickAnimLoop();
+    } else if (ev.type === 'waiting_nudge') {
+      dyn.ahogeVx += (window.__atsFlipX ? 1 : -1) * 2.5;
+      dyn.earRV += 3.8;
+      if (!inManualLock) setTransientExpr('wink', 'default', 3500, 0.15, 'waiting_nudge');
+      else kickAnimLoop();
+    } else if (ev.type === 'compact') {
+      dyn.ahogeVy += 2.2;
+      setTransientExpr('dizzy', 'dizzy', 3000, 0.1, 'compact');
+    } else if (ev.type === 'step_error') {
+      const expr = (ev.streak || 1) >= 2 ? 'dizzy' : 'teary';
+      setTransientExpr(expr, expr, 2800, 0.05, 'step_error');
+    } else if (ev.type === 'error_fixed') {
+      dyn.ahogeVy -= 4.8;
+      dyn.glintBurst = 1.0;
+      setTransientExpr('starry', 'heart', 2800, 0.38, 'error_fixed');
+      const st = window.__atsBounce;
+      if (st?.gl) {
+        if (st.impulses.length >= 6) st.impulses.shift();
+        st.impulses.push({ ux: 0.45, uy: 0.34, t0: performance.now(), str: 0.32 });
+      }
+    } else if (ev.type === 'turn_done') {
+      if ((ev.durationMs || 0) >= 8000 || (ev.toolCount || 0) >= 2 || ev.hadErrors) {
+        dyn.ahogeVy -= 4.5;
+        dyn.glintBurst = 0.9;
+        setTransientExpr('starry', 'smug', 3000, 0.32, 'turn_done');
+        const st = window.__atsBounce;
+        if (st?.gl) {
+          if (st.impulses.length >= 6) st.impulses.shift();
+          st.impulses.push({ ux: 0.45, uy: 0.36, t0: performance.now(), str: 0.26 });
+        }
+      } else {
+        dyn.ahogeVy -= 2.8;
+        kickAnimLoop();
+      }
+    }
+  };
+
   if (!window.__atsVisHandler) {
     window.__atsVisHandler = () => {
-      if (!document.hidden) kickAnimLoop();
+      if (!document.hidden) {
+        wakeFromAfk();
+        kickAnimLoop();
+      }
     };
     document.addEventListener('visibilitychange', window.__atsVisHandler);
   }
 
-  function isOpaqueAt(ux, uy) {
+  if (!window.__atsFocusHandler) {
+    window.__atsFocusHandler = () => {
+      wakeFromAfk();
+      kickAnimLoop();
+    };
+    window.addEventListener('focus', window.__atsFocusHandler);
+  }
+
+  if (!window.__atsKeyHandler) {
+    window.__atsKeyHandler = (e) => {
+      wakeFromAfk();
+      const dyn = window.__atsDyn;
+      if (!dyn || !window.__atsAiCompanion) return;
+      const now = performance.now();
+      const target = e.target;
+      const inEditable = !!(target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable || target.closest?.('[contenteditable="true"]')));
+      if (!inEditable) return;
+
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        dyn.ahogeVy -= 3.8;
+        dyn.earLV += 3.2;
+        kickAnimLoop();
+        return;
+      }
+      if (e.key === 'Backspace') {
+        dyn.backspaceTimes.push(now);
+        while (dyn.backspaceTimes.length && now - dyn.backspaceTimes[0] > 1500) {
+          dyn.backspaceTimes.shift();
+        }
+        if (dyn.backspaceTimes.length >= 6 && dyn.transient?.reason !== 'backspace') {
+          dyn.backspaceTimes = [];
+          setTransientExpr('pout', 'teary', 2200, 0.25, 'backspace');
+        }
+        return;
+      }
+      if (e.key && e.key.length === 1) {
+        dyn.lastTypingAt = now;
+        dyn.typingBoost = Math.min(1, dyn.typingBoost + 0.18);
+        if (dyn.typingBoost > 0.55) {
+          dyn.ahogeVx += (Math.random() - 0.5) * 1.4;
+          if (Math.random() < 0.14) dyn.earLV += 2.2;
+        }
+        kickAnimLoop();
+      }
+    };
+    document.addEventListener('keydown', window.__atsKeyHandler, { capture: true, passive: true });
+  }
+
+  if (window.__atsSelHandler) {
+    document.removeEventListener('selectionchange', window.__atsSelHandler);
+    window.__atsSelHandler = null;
+  }
+
+  if (window.__atsWheelHandler && window.__atsWheelVer !== 2) {
+    document.removeEventListener('wheel', window.__atsWheelHandler, true);
+    window.__atsWheelHandler = null;
+  }
+  if (!window.__atsWheelHandler) {
+    window.__atsWheelVer = 2;
+    window.__atsWheelHandler = () => {
+      const dyn = window.__atsDyn;
+      if (!dyn || !window.__atsShowPortrait) return;
+      if (dyn.afkSleepy) wakeFromAfk();
+      else dyn.lastInputAt = performance.now();
+    };
+    document.addEventListener('wheel', window.__atsWheelHandler, { capture: true, passive: true });
+  }
+
+  if (window.__atsMoveHandler && window.__atsMoveVer !== 2) {
+    document.removeEventListener('pointermove', window.__atsMoveHandler, true);
+    window.__atsMoveHandler = null;
+  }
+  if (!window.__atsMoveHandler) {
+    let lastMoveCheck = 0;
+    window.__atsMoveVer = 2;
+    window.__atsMoveHandler = () => {
+      const now = performance.now();
+      if (now - lastMoveCheck < 150) return;
+      lastMoveCheck = now;
+      const dyn = window.__atsDyn;
+      if (!dyn || !window.__atsShowPortrait) return;
+      if (dyn.afkSleepy) wakeFromAfk();
+      else dyn.lastInputAt = now;
+    };
+    document.addEventListener('pointermove', window.__atsMoveHandler, { capture: true, passive: true });
+  }
+
+  function isOpaqueAt(ux, uy, radius = 1, threshold = 20) {
     const st = window.__atsBounce;
     if (!st?.hitAlpha) return true;
     const cx = Math.min(st.hitW - 1, Math.max(0, Math.floor(ux * st.hitW)));
     const cy = Math.min(st.hitH - 1, Math.max(0, Math.floor(uy * st.hitH)));
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
         const nx = cx + dx;
         const ny = cy + dy;
         if (nx >= 0 && nx < st.hitW && ny >= 0 && ny < st.hitH) {
-          if (st.hitAlpha[ny * st.hitW + nx] > 20) return true;
+          if (st.hitAlpha[ny * st.hitW + nx] > threshold) return true;
         }
       }
     }
@@ -1123,10 +2250,17 @@ function pageController(payload) {
     } else if (imgEl && imgEl.complete && imgEl.naturalWidth) {
       ensureHitMapAndTexture(imgEl);
     }
+    kickAnimLoop();
   };
 
+  if (window.__atsPointerHandler && window.__atsPointerVer !== 2) {
+    document.removeEventListener('pointerdown', window.__atsPointerHandler, true);
+    window.__atsPointerHandler = null;
+  }
   if (!window.__atsPointerHandler) {
+    window.__atsPointerVer = 2;
     window.__atsPointerHandler = (e) => {
+      wakeFromAfk();
       const canBounce = !!window.__atsClickBounce;
       const canPokeExpr = !!(window.__atsAllowExpr && window.__atsClickExpr);
       if ((!canBounce && !canPokeExpr) || !window.__atsShowPortrait) return;
@@ -1145,20 +2279,40 @@ function pageController(payload) {
       const rawUx = (e.clientX - rect.left) / rect.width;
       const ux = window.__atsFlipX ? 1.0 - rawUx : rawUx;
       const uy = (e.clientY - rect.top) / rect.height;
-      window.__atsRefreshExpr?.();
-      if (!isOpaqueAt(ux, uy)) return;
 
       const st = window.__atsBounce;
+      const dyn = window.__atsDyn;
       if (!st) return;
+      if (!st.hitAlpha) window.__atsRefreshExpr?.();
 
-      const isHeadHit = uy >= 0 && uy <= 0.295 && ux >= 0.20 && ux <= 0.72;
+      const isHeadHit = uy >= 0 && uy <= 0.345 && ux >= 0.18 && ux <= 0.76;
+      if (!isOpaqueAt(ux, uy, isHeadHit ? 2 : 1, isHeadHit ? 10 : 20)) return;
+
+      if (dyn) {
+        if (uy < 0.09 && ux >= 0.36 && ux <= 0.51) dyn.ahogeVx += (Math.random() > 0.5 ? 1 : -1) * 4.2;
+        if (uy < 0.16 && ux < 0.42) dyn.earLV += 5.5;
+        if (uy < 0.16 && ux >= 0.48) dyn.earRV += 5.5;
+        if (ux >= 0.52 && ux <= 0.64 && uy >= 0.10 && uy <= 0.24) dyn.glintBurst = 1.0;
+      }
+
       if (canPokeExpr && isHeadHit && window.__atsExprPack?.imgs) {
+        if (dyn) {
+          clearTimeout(dyn.transTimer);
+          dyn.transient = null;
+          dyn.manualExprCooldownUntil = performance.now() + 8000;
+        }
         const curExpr = window.__atsBaseExpr || 'default';
-        const pool = ['default', 'wink', 'smug', 'shy', 'sleepy', 'starry'];
-        const candidates = pool.filter((id) => id !== curExpr && (id === 'default' || window.__atsExprPack.imgs[id]));
+        const pool = ['default', ...Object.keys(window.__atsExprPack.imgs)];
+        const candidates = pool.filter((id) => {
+          if (id === curExpr) return false;
+          if (id === 'default') return true;
+          const entry = window.__atsExprPack.imgs[id];
+          return !!(entry?.img && (!entry.img.complete || entry.img.naturalWidth > 0));
+        });
         if (candidates.length > 0) {
           const picked = candidates[Math.floor(Math.random() * candidates.length)];
           window.__atsBaseExpr = picked;
+          window.__atsLocalExprLock = { expr: picked, prevExpr: curExpr, at: performance.now(), retried: false };
           window.__atsRefreshExpr?.();
           if (typeof window.__atsBridge === 'function') {
             window.__atsBridge(JSON.stringify({ portrait: { expression: picked } }));
@@ -1198,7 +2352,7 @@ function pageController(payload) {
     if (!cache || !hash) return null;
     if (!cache.map[hash]) {
       cache.order.push(hash);
-      while (cache.order.length > 6) {
+      while (cache.order.length > 16) {
         const drop = cache.order.shift();
         if (drop && drop !== hash) delete cache.map[drop];
       }
@@ -1224,10 +2378,19 @@ function pageController(payload) {
       imgEl.style.display = 'none';
       imgEl.style.visibility = 'visible';
       if (canvasEl) canvasEl.style.display = 'none';
+      if (shadowEl) shadowEl.style.display = 'none';
+      if (window.__atsBounce) {
+        window.__atsBounce.canvasShown = false;
+        window.__atsBounce.shadowShown = false;
+      }
     } else {
       const targetHash = payload.imageHash || '';
       window.__atsDesiredHash = targetHash;
       imgEl.style.display = 'block';
+      if (shadowEl && window.__atsBounce?.shadowShown !== true) {
+        shadowEl.style.display = 'block';
+        if (window.__atsBounce) window.__atsBounce.shadowShown = true;
+      }
       const cachedEntry = targetHash ? window.__atsPortraitCache.map[targetHash] : null;
       if (cachedEntry?.img?.complete && cachedEntry.img.naturalWidth) {
         applyPortraitEntry(targetHash, cachedEntry);
@@ -1445,15 +2608,15 @@ function pageController(payload) {
     return { composerMatched, canvasMatched, adaptedTokens };
   }
 
-  // 4. 自动避让检测：支持类名、嵌入标签与纯几何分栏探测
+  // 4. 自动避让检测：支持类名、嵌入标签与纯几何分栏探测（已移除窄窗避让淡出）
   window.__atsAuxShift = payload.auxShift !== false;
   let lastAuxMode = 'none';
   function updateAvoidance() {
     const bd = document.getElementById(BACKDROP_ID);
     if (!bd) return;
+    delete bd.dataset.narrow;
     const vw = window.innerWidth || 1280;
     const vh = window.innerHeight || 800;
-    bd.dataset.narrow = vw < 1040 ? 'true' : 'false';
 
     let auxWidth = 0;
     lastAuxMode = 'none';
@@ -1522,25 +2685,35 @@ function pageController(payload) {
       bd.style.setProperty('--ats-aux-shift', shiftPx + 'px');
     }
 
-    // 同步对齐顶部对话栏右侧红框区快捷切换开关
+    // 同步对齐顶部对话栏右侧红框区快捷切换开关（优先复用缓存节点，避免流式输出时遍历整页 div）
     const pill = document.getElementById(PILL_ID);
     if (pill) {
-      let bar = null;
-      const bars = document.querySelectorAll('#root div, header');
-      for (const el of bars) {
-        if (el.id === PILL_ID || el.closest('#' + BACKDROP_ID)) continue;
+      const isValidTopBar = (el) => {
+        if (!el || !el.isConnected || el.id === PILL_ID || el.closest('#' + BACKDROP_ID)) return null;
+        if (el.children.length < 2) return null;
         const r = el.getBoundingClientRect();
-        if (r.top >= 20 && r.top <= 72 && r.height >= 28 && r.height <= 54 && r.width >= 360 && el.children.length >= 2) {
-          const first = el.firstElementChild;
-          const last = el.lastElementChild;
-          if (first && last && last !== first && last.querySelector('button, svg')) {
+        if (r.top < 20 || r.top > 72 || r.height < 28 || r.height > 54 || r.width < 360) return null;
+        const first = el.firstElementChild;
+        const last = el.lastElementChild;
+        if (first && last && last !== first && last.querySelector('button, svg')) return r;
+        return null;
+      };
+      let bar = window.__atsTopBarEl || null;
+      let br = isValidTopBar(bar);
+      if (!br) {
+        bar = null;
+        const bars = document.querySelectorAll('header, #root > div > div, #root > div > div > div, #root div');
+        for (const el of bars) {
+          const rect = isValidTopBar(el);
+          if (rect) {
             bar = el;
+            br = rect;
             break;
           }
         }
+        window.__atsTopBarEl = bar;
       }
-      if (bar) {
-        const br = bar.getBoundingClientRect();
+      if (bar && br) {
         const fr = bar.firstElementChild.getBoundingClientRect();
         const lr = bar.lastElementChild.getBoundingClientRect();
         const freeGap = lr.left - fr.right;
@@ -1556,13 +2729,14 @@ function pageController(payload) {
       }
     }
   }
+  window.__atsUpdateLayout = updateAvoidance;
 
   if (!window.__atsResizeHandler) {
-    window.__atsResizeHandler = () => requestAnimationFrame(updateAvoidance);
+    window.__atsResizeHandler = () => requestAnimationFrame(() => window.__atsUpdateLayout?.());
     window.addEventListener('resize', window.__atsResizeHandler, { passive: true });
   }
   if (!window.__atsResizeObs && typeof ResizeObserver !== 'undefined') {
-    window.__atsResizeObs = new ResizeObserver(() => requestAnimationFrame(updateAvoidance));
+    window.__atsResizeObs = new ResizeObserver(() => requestAnimationFrame(() => window.__atsUpdateLayout?.()));
     const sheetInner = document.querySelector('.agy-sheet > div');
     if (sheetInner) {
       window.__atsResizeObs.observe(sheetInner);
@@ -1571,12 +2745,37 @@ function pageController(payload) {
   }
   if (!window.__atsObserver) {
     let raf = 0;
-    window.__atsObserver = new MutationObserver(() => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        updateAvoidance();
-      });
+    let cooldownTimer = 0;
+    let lastAvoidRunAt = 0;
+    window.__atsObserver = new MutationObserver((records) => {
+      let relevant = false;
+      for (const rec of records) {
+        const tgt = rec.target;
+        if (tgt && tgt.nodeType === 1) {
+          const el = /** @type {Element} */ (tgt);
+          if (el.id === BACKDROP_ID || el.id === PILL_ID || el.closest('#' + BACKDROP_ID) || el.closest('#' + PILL_ID)) continue;
+        }
+        relevant = true;
+        break;
+      }
+      if (!relevant || raf || cooldownTimer) return;
+      const since = performance.now() - lastAvoidRunAt;
+      const schedule = () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          lastAvoidRunAt = performance.now();
+          window.__atsUpdateLayout?.();
+        });
+      };
+      if (since >= 180) {
+        schedule();
+      } else {
+        cooldownTimer = setTimeout(() => {
+          cooldownTimer = 0;
+          schedule();
+        }, 180 - since);
+      }
     });
     window.__atsObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden', 'aria-hidden'] });
   }
@@ -1598,7 +2797,7 @@ const PAGE_CONTROLLER_FN = `(${pageController.toString()})`;
 export { pageController };
 
 export class ThemeInjector {
-  constructor({ assetsDir, getSettings, resolveTheme, onPatch = null, log = () => {} }) {
+  constructor({ assetsDir, getSettings, resolveTheme, onPatch = null, log = () => {}, telemetryMod = null }) {
     this.assetsDir = assetsDir;
     this.getSettings = getSettings;
     this.resolveTheme = resolveTheme;
@@ -1611,16 +2810,23 @@ export class ThemeInjector {
     this._timer = null;
     this._stopped = false;
     this._syncQueue = Promise.resolve();
+    const TelemetryCtor = telemetryMod?.LocalTelemetry || DefaultLocalTelemetry;
+    this.telemetry = new TelemetryCtor({
+      log: this.log,
+      onSignal: (sig) => void this._broadcastSignal(sig),
+    });
   }
 
   start() {
     this._stopped = false;
+    this.telemetry?.start();
     void this.tick();
     this._timer = setInterval(() => void this.tick(), 3000);
   }
 
   async stop() {
     this._stopped = true;
+    this.telemetry?.stop();
     if (this._timer) {
       clearInterval(this._timer);
       this._timer = null;
@@ -1637,6 +2843,20 @@ export class ThemeInjector {
     }
     this.sessions.clear();
     this.health = { state: 'stopped', windows: 0, systemDark: this.health.systemDark };
+  }
+
+  async _broadcastSignal(sig) {
+    if (this._stopped || !sig || this.sessions.size === 0) return;
+    const settings = this.getSettings();
+    if (!settings?.enabled || settings.portrait?.enabled === false || settings.portrait?.aiCompanion === false) {
+      return;
+    }
+    const expr = `window.__atsOnSignal && window.__atsOnSignal(${JSON.stringify(sig)})`;
+    await Promise.allSettled(
+      [...this.sessions.values()]
+        .filter((s) => s.contextId)
+        .map((s) => this.evalInSession(s, expr).catch(() => {}))
+    );
   }
 
   _readCachedImage(chosen) {
@@ -1656,7 +2876,7 @@ export class ThemeInjector {
   _resolveImageAsset(theme, settings) {
     const defaultAnchor = { dx: 0, dy: 0, scale: 1 };
     if (!settings.portrait.enabled) {
-      return { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprAnchor: defaultAnchor };
+      return { showPortrait: false, outfitKey: '', hash: '', dataUrl: null, allowExpression: false, exprAnchor: defaultAnchor };
     }
     const isNight = theme.portraitKey === 'night';
     const customPath = isNight ? settings.portrait.customNightImage : settings.portrait.customDayImage;
@@ -1668,8 +2888,8 @@ export class ThemeInjector {
     const img = this._readCachedImage(chosen);
     const exprAnchor = isCustom ? defaultAnchor : (outfit.exprAnchor || defaultAnchor);
     return img
-      ? { showPortrait: true, ...img, allowExpression: !isCustom, exprAnchor }
-      : { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprAnchor: defaultAnchor };
+      ? { showPortrait: true, outfitKey: isCustom ? '' : outfit.id, ...img, allowExpression: !isCustom, exprAnchor }
+      : { showPortrait: false, outfitKey: '', hash: '', dataUrl: null, allowExpression: false, exprAnchor: defaultAnchor };
   }
 
   _resolveExpressionPack() {
@@ -1717,10 +2937,12 @@ export class ThemeInjector {
   _handleSessionEvent(session, { method, params }) {
     if (method === 'Runtime.executionContextDestroyed' && params?.executionContextId === session.contextId) {
       session.contextId = null;
+      session.controllerReady = false;
       session.knownImageHashes?.clear();
       session.sentExprHash = null;
     } else if (method === 'Runtime.executionContextsCleared' || (method === 'Page.frameNavigated' && !params?.frame?.parentId)) {
       session.contextId = null;
+      session.controllerReady = false;
       session.knownImageHashes?.clear();
       session.sentExprHash = null;
       session.sentBgHash = null;
@@ -1729,6 +2951,17 @@ export class ThemeInjector {
         const msg = JSON.parse(params.payload || '{}');
         if (msg?.action === 'pickCustomBg') {
           void this.onPatch?.({ action: 'pickCustomBg' });
+        } else if (msg?.action === 'randomLook') {
+          const current = this.getSettings();
+          const theme = this.resolveTheme(current, { systemDark: this.health.systemDark });
+          const isNight = theme.portraitKey === 'night';
+          const curOutfit = isNight ? current.portrait.nightOutfit : current.portrait.dayOutfit;
+          const nextOutfit = pickDifferent(Object.keys(BUILTIN_PORTRAITS), curOutfit);
+          const nextExpr = pickDifferent(Object.keys(BUILTIN_EXPRESSIONS), current.portrait.expression);
+          const portraitPatch = isNight
+            ? { enabled: true, nightOutfit: nextOutfit, customNightImage: '', expression: nextExpr }
+            : { enabled: true, dayOutfit: nextOutfit, customDayImage: '', expression: nextExpr };
+          void this.onPatch?.({ portrait: portraitPatch });
         } else if (msg?.portrait && typeof msg.portrait === 'object') {
           if (typeof msg.portrait.expression === 'string' && BUILTIN_EXPRESSIONS[msg.portrait.expression]) {
             void this.onPatch?.({ portrait: { expression: msg.portrait.expression } });
@@ -1751,12 +2984,22 @@ export class ThemeInjector {
     const tree = await session.command('Page.getFrameTree');
     const frameId = tree.frameTree?.frame?.id;
     if (!frameId) throw new Error('no root frame');
+    try {
+      await session.command('Runtime.addBinding', { name: '__atsBridge', executionContextName: WORLD_NAME });
+    } catch {
+      try {
+        await session.command('Runtime.addBinding', { name: '__atsBridge' });
+      } catch {
+        // 忽略重复绑定错误
+      }
+    }
     const world = await session.command('Page.createIsolatedWorld', {
       frameId,
       worldName: WORLD_NAME,
       grantUniveralAccess: false,
     });
     session.contextId = world.executionContextId;
+    session.controllerReady = false;
     session.knownImageHashes?.clear();
     session.sentExprHash = null;
     session.sentBgHash = null;
@@ -1816,7 +3059,7 @@ export class ThemeInjector {
     const run = async () => {
       const settings = this.getSettings();
       const theme = this.resolveTheme(settings, { systemDark: this.health.systemDark });
-      const image = settings.enabled ? this._resolveImageAsset(theme, settings) : { showPortrait: false, hash: '', dataUrl: null, allowExpression: false, exprAnchor: { dx: 0, dy: 0, scale: 1 } };
+      const image = settings.enabled ? this._resolveImageAsset(theme, settings) : { showPortrait: false, outfitKey: '', hash: '', dataUrl: null, allowExpression: false, exprAnchor: { dx: 0, dy: 0, scale: 1 } };
       const exprPack = settings.enabled && image.showPortrait && image.allowExpression ? this._resolveExpressionPack() : { hash: '', patches: null };
       const bgImg = settings.enabled ? this._resolveCustomBgAsset(settings) : { showCustomBg: false, hasSavedBg: false, hash: '', dataUrl: null };
       const css = settings.enabled ? buildThemeCss(theme, settings, bgImg.showCustomBg) : '';
@@ -1832,7 +3075,7 @@ export class ThemeInjector {
             if (!h) return;
             session.knownImageHashes.delete(h);
             session.knownImageHashes.add(h);
-            while (session.knownImageHashes.size > 6) {
+            while (session.knownImageHashes.size > 16) {
               const oldest = session.knownImageHashes.values().next().value;
               session.knownImageHashes.delete(oldest);
             }
@@ -1843,15 +3086,24 @@ export class ThemeInjector {
           const makePayload = (withPortrait, withExpr, withBg) => ({
             enabled: settings.enabled,
             phase: theme.phase,
+            mode: settings.mode || 'auto',
             palette: theme.palette,
+            accentColor: theme.palette?.accent || '#7C5CE6',
             css,
             showPortrait: image.showPortrait,
+            outfitKey: image.outfitKey || '',
+            featherLeft: settings.portrait.featherLeft ?? 14,
+            featherBottom: settings.portrait.featherBottom ?? 12,
             auxShift: settings.portrait.auxShift !== false,
             idleMotion: settings.portrait.idleMotion !== false,
             idleMotionAmp: settings.portrait.idleMotionAmp ?? 0.75,
             clickBounce: settings.portrait.clickBounce !== false,
             clickBounceRange: settings.portrait.clickBounceRange ?? 0.45,
             clickExpression: settings.portrait.clickExpression !== false,
+            microMotion: settings.portrait.microMotion !== false,
+            ambientLight: settings.portrait.ambientLight !== false,
+            aiCompanion: settings.portrait.aiCompanion !== false,
+            portraitScale: settings.portrait.scale ?? 1.0,
             expression: settings.portrait.expression || 'default',
             allowExpression: !!image.allowExpression,
             exprAnchor: image.exprAnchor || { dx: 0, dy: 0, scale: 1 },
@@ -1866,11 +3118,26 @@ export class ThemeInjector {
             bgHash: bgImg.hash,
             bgDataUrl: withBg ? bgImg.dataUrl : null,
           });
-          let res = await this.evalInSession(session, `${PAGE_CONTROLLER_FN}(${JSON.stringify(makePayload(sendImg, sendExpr, sendBg))})`);
+          const runController = (withPortrait, withExpr, withBg) => {
+            const payloadJson = JSON.stringify(makePayload(withPortrait, withExpr, withBg));
+            const expr = session.controllerReady
+              ? `(typeof window.__atsPageController==='function'?window.__atsPageController(${payloadJson}):{needController:true})`
+              : `(window.__atsPageController=${PAGE_CONTROLLER_FN})(${payloadJson})`;
+            return this.evalInSession(session, expr);
+          };
+          let res = await runController(sendImg, sendExpr, sendBg);
           if (res?.exceptionDetails) {
             this.log(`page eval error: ${res.exceptionDetails.text || res.exceptionDetails.exception?.description || 'unknown'}`);
           }
           let val = res?.result?.value;
+          if (val?.needController) {
+            session.controllerReady = false;
+            res = await runController(sendImg, sendExpr, sendBg);
+            val = res?.result?.value;
+          }
+          if (val?.ok) {
+            session.controllerReady = true;
+          }
           const retryPortrait = !!(val?.needImage && image.showPortrait && image.dataUrl);
           const retryExpr = !!(val?.needExprPack && image.showPortrait && image.allowExpression && exprPack.hash && exprPack.patches);
           const retryBg = !!(val?.needBgImage && bgImg.showCustomBg && bgImg.dataUrl);
@@ -1878,9 +3145,10 @@ export class ThemeInjector {
             if (retryPortrait) session.knownImageHashes.delete(image.hash);
             if (retryExpr) session.sentExprHash = null;
             if (retryBg) session.sentBgHash = null;
-            res = await this.evalInSession(session, `${PAGE_CONTROLLER_FN}(${JSON.stringify(makePayload(retryPortrait, retryExpr, retryBg))})`);
+            res = await runController(retryPortrait, retryExpr, retryBg);
             val = res?.result?.value;
             if (val?.ok) {
+              session.controllerReady = true;
               if (retryPortrait) rememberImg(image.hash);
               if (retryExpr) session.sentExprHash = exprPack.hash;
               if (retryBg) session.sentBgHash = bgImg.hash;

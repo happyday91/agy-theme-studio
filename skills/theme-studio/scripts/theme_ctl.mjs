@@ -51,6 +51,9 @@ if (cmd === 'status') {
   if (f.clickBounce !== undefined) portrait.clickBounce = f.clickBounce === 'true';
   if (f.clickBounceRange !== undefined) portrait.clickBounceRange = Number(f.clickBounceRange);
   if (f.clickExpression !== undefined) portrait.clickExpression = f.clickExpression === 'true';
+  if (f.microMotion !== undefined) portrait.microMotion = f.microMotion === 'true';
+  if (f.ambientLight !== undefined) portrait.ambientLight = f.ambientLight === 'true';
+  if (f.aiCompanion !== undefined) portrait.aiCompanion = f.aiCompanion === 'true';
   if (f.flipX !== undefined) portrait.flipX = f.flipX === 'true';
   if (f.scale !== undefined) portrait.scale = Number(f.scale);
   if (f.right !== undefined) portrait.offsetRight = Number(f.right);

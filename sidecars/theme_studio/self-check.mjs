@@ -1,19 +1,28 @@
-// 发布前自检脚本：验证注入函数序列化、CSS 生成、三套立绘资源及主题解析无异常
+// 发布前自检脚本：验证注入函数序列化、Overscan WebGL 控制器、12 套立绘、10 款表情及本地遥测状态机无异常
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BUILTIN_EXPRESSIONS, BUILTIN_PORTRAITS, BUILTIN_PRESETS, DEFAULT_SETTINGS } from './presets.mjs';
 import { normalizeSettings, resolveEffectiveTheme } from './settings.mjs';
 import { ThemeInjector, pageController } from './cdp-injector.mjs';
+import { LocalTelemetry, TranscriptTail, diffConversations, parseConversations } from './telemetry.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ASSETS = resolve(HERE, '..', '..', 'assets');
 
-// 1. 验证真实序列化的页面控制器可无误解析编译
-const compiled = new Function(`return (${pageController.toString()})`);
+// 1. 验证真实序列化的页面控制器可无误解析编译，且包含 v3 扩边/分体表情/光影/遥测关键符号
+const ctrlSrc = pageController.toString();
+const compiled = new Function(`return (${ctrlSrc})`);
 if (typeof compiled() !== 'function') throw new Error('pageController serialization failed');
+for (const marker of ['shaderVer = 5', '__atsOnSignal', 'u_expr_eye', 'u_outfit_wipe', 'u_rim_fill', '/ 1.16', 'wakeup']) {
+  if (marker === 'wakeup' && !ctrlSrc.includes('wakeFromAfk')) {
+    throw new Error('Missing AFK wake handler in pageController');
+  } else if (marker !== 'wakeup' && !ctrlSrc.includes(marker)) {
+    throw new Error(`Missing v3 marker in pageController: ${marker}`);
+  }
+}
 
-// 2. 验证五套内置立绘与六种表情差分均存在且能生成哈希、Data URL 与表情锚点
+// 2. 验证 12 套内置立绘、10 款表情与新增动态设置项规范化
 const inj = new ThemeInjector({
   assetsDir: ASSETS,
   getSettings: () => DEFAULT_SETTINGS,
@@ -21,7 +30,7 @@ const inj = new ThemeInjector({
 });
 
 const portraitIds = Object.keys(BUILTIN_PORTRAITS);
-if (portraitIds.length !== 5) throw new Error(`Expected 5 builtin portraits, got ${portraitIds.length}`);
+if (portraitIds.length !== 12) throw new Error(`Expected 12 builtin portraits, got ${portraitIds.length}`);
 for (const outfitId of portraitIds) {
   const file = join(ASSETS, BUILTIN_PORTRAITS[outfitId].file);
   if (!existsSync(file)) throw new Error(`Missing portrait asset: ${file}`);
@@ -31,6 +40,9 @@ for (const outfitId of portraitIds) {
     if (!asset.showPortrait || !asset.hash || !asset.dataUrl?.startsWith('data:image/')) {
       throw new Error(`Invalid resolved asset for ${phase}/${outfitId}`);
     }
+    if (asset.outfitKey !== outfitId) {
+      throw new Error(`Expected outfitKey=${outfitId}, got ${asset.outfitKey}`);
+    }
     if (!asset.allowExpression || !asset.exprAnchor || typeof asset.exprAnchor.dx !== 'number') {
       throw new Error(`Expected builtin outfit ${outfitId} to allow expressions with valid exprAnchor`);
     }
@@ -38,7 +50,7 @@ for (const outfitId of portraitIds) {
 }
 
 const exprIds = Object.keys(BUILTIN_EXPRESSIONS);
-if (exprIds.length !== 6) throw new Error(`Expected 6 expressions, got ${exprIds.length}`);
+if (exprIds.length !== 10) throw new Error(`Expected 10 expressions, got ${exprIds.length}`);
 const exprPack = inj._resolveExpressionPack();
 if (!exprPack.hash) throw new Error('Missing expression pack hash');
 for (const exprId of exprIds) {
@@ -57,16 +69,125 @@ if (normalizeSettings({ portrait: { expression: 'nonexistent' } }).portrait.expr
   throw new Error('normalizeSettings did not fallback invalid expression to default');
 }
 
-// 3. 验证全部内置预设解析正常
+const sFlags = normalizeSettings({ portrait: { microMotion: false, ambientLight: false, aiCompanion: false } });
+if (sFlags.portrait.microMotion !== false || sFlags.portrait.ambientLight !== false || sFlags.portrait.aiCompanion !== false) {
+  throw new Error('normalizeSettings failed on microMotion/ambientLight/aiCompanion false flags');
+}
+
+// 3. 验证 randomLook 事件路由与 _broadcastSignal 安全执行
+const patches = [];
+const mockInj = new ThemeInjector({
+  assetsDir: ASSETS,
+  getSettings: () => DEFAULT_SETTINGS,
+  resolveTheme: (s, o) => resolveEffectiveTheme(s, o),
+  onPatch: (p) => patches.push(p),
+});
+mockInj._handleSessionEvent({ knownImageHashes: new Set() }, {
+  method: 'Runtime.bindingCalled',
+  params: { name: '__atsBridge', payload: JSON.stringify({ action: 'randomLook' }) },
+});
+if (!patches[0]?.portrait?.dayOutfit || !patches[0]?.portrait?.expression) {
+  throw new Error('randomLook did not produce portrait patch');
+}
+await mockInj._broadcastSignal({ type: 'turn_done', durationMs: 9000, hadErrors: false, toolCount: 2 });
+
+// 4. 验证全部内置预设解析正常
 for (const presetId of Object.keys(BUILTIN_PRESETS)) {
   const s = normalizeSettings({ mode: 'manual-preset', manualPresetId: presetId });
   const eff = resolveEffectiveTheme(s);
   if (!eff?.palette?.bgPage) throw new Error(`Invalid effective theme for ${presetId}`);
 }
 
+// 5. Telemetry 单元测试（parseConversations / diffConversations / TranscriptTail / LocalTelemetry 状态机）
+const snap1 = parseConversations({
+  trajectorySummaries: {
+    c1: { status: 'TASK_STATUS_RUNNING', stepCount: 1, lastModifiedTime: '2026-11-21T00:00:01Z', waitingSteps: [] },
+    s1: { status: 'TASK_STATUS_RUNNING', trajectoryMetadata: { parentConversationId: 'c1' } },
+    s2: { status: 'TASK_STATUS_RUNNING', trajectoryMetadata: { parentConversationId: 'c1' } },
+  },
+});
+const snap2 = parseConversations({
+  trajectorySummaries: {
+    c1: { status: 'TASK_STATUS_IDLE', stepCount: 4, lastModifiedTime: '2026-11-21T00:00:12Z', waitingSteps: [] },
+    s1: { status: 'TASK_STATUS_IDLE', trajectoryMetadata: { parentConversationId: 'c1' } },
+    s2: { status: 'TASK_STATUS_IDLE', trajectoryMetadata: { parentConversationId: 'c1' } },
+  },
+});
+const diffs = diffConversations(snap1, snap2, 20000);
+if (!diffs.some((d) => d.type === 'turn_end' && d.id === 'c1') || diffs.filter((d) => d.type === 'subagent_done').length !== 2) {
+  throw new Error(`Unexpected diffConversations result: ${JSON.stringify(diffs)}`);
+}
+
+const tail = new TranscriptTail('unused.jsonl');
+const eCompact = tail.ingest({ type: 'CHECKPOINT' });
+const eErr = tail.ingest({ type: 'PLANNER_RESPONSE', status: 'ERROR', tool_calls: [{ name: 'run_command' }] });
+if (eCompact[0]?.type !== 'compact' || !eErr.some((e) => e.type === 'step_error') || !eErr.some((e) => e.type === 'tool' && e.category === 'running')) {
+  throw new Error('TranscriptTail.ingest failed to classify compact/tool/step_error');
+}
+
+let clock = 1000;
+const signals = [];
+let pollStep = 0;
+const mockTailEvents = [
+  [{ type: 'compact' }, { type: 'step_error' }],
+  [{ type: 'tool', category: 'writing' }],
+];
+const fakeLs = {
+  async call() {
+    pollStep++;
+    if (pollStep === 1) {
+      return {
+        trajectorySummaries: {
+          r1: { status: 'TASK_STATUS_RUNNING', waitingSteps: [{}] },
+          sub1: { status: 'TASK_STATUS_RUNNING', trajectoryMetadata: { parentConversationId: 'r1' } },
+          sub2: { status: 'TASK_STATUS_RUNNING', trajectoryMetadata: { parentConversationId: 'r1' } },
+        },
+      };
+    }
+    if (pollStep === 2) {
+      return {
+        trajectorySummaries: {
+          r1: { status: 'TASK_STATUS_RUNNING', waitingSteps: [{}] },
+        },
+      };
+    }
+    return {
+      trajectorySummaries: {
+        r1: { status: 'TASK_STATUS_IDLE', latestExecutorTerminationReason: 'EXECUTOR_TERMINATION_REASON_STOP' },
+      },
+    };
+  },
+};
+const tel = new LocalTelemetry({
+  ls: fakeLs,
+  now: () => clock,
+  onSignal: (s) => signals.push(s),
+  tailFactory: () => ({ toolCount: 3, read: async () => mockTailEvents.shift() || [] }),
+});
+await tel.pollOnce();
+clock += 9000;
+await tel.pollOnce();
+clock += 1000;
+await tel.pollOnce();
+const sigTypes = signals.map((s) => s.type);
+for (const expected of ['ai_state', 'compact', 'step_error', 'waiting_nudge', 'error_fixed', 'turn_done']) {
+  if (!sigTypes.includes(expected)) {
+    throw new Error(`LocalTelemetry missed signal ${expected}, got: ${JSON.stringify(signals)}`);
+  }
+}
+const subSig = signals.find((s) => s.type === 'ai_state' && s.phase === 'subagents');
+if (!subSig || subSig.subagents !== 2) {
+  throw new Error(`Expected subagents phase signal, got: ${JSON.stringify(signals)}`);
+}
+
+inj.telemetry?.stop?.();
+mockInj.telemetry?.stop?.();
+tel.stop();
+
 console.log('self-check OK:', {
   presets: Object.keys(BUILTIN_PRESETS).length,
-  portraits: Object.keys(BUILTIN_PORTRAITS).length,
+  portraits: portraitIds.length,
   expressions: exprIds.length,
-  controllerBytes: pageController.toString().length,
+  telemetrySignalsTested: [...new Set(sigTypes)].length,
+  controllerBytes: ctrlSrc.length,
 });

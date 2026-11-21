@@ -49,6 +49,9 @@ export function normalizeSettings(raw) {
   merged.portrait.clickBounce = merged.portrait.clickBounce !== false;
   merged.portrait.clickBounceRange = clampNum(merged.portrait.clickBounceRange, 0.1, 1.5, 0.45);
   merged.portrait.clickExpression = merged.portrait.clickExpression !== false;
+  merged.portrait.microMotion = merged.portrait.microMotion !== false;
+  merged.portrait.ambientLight = merged.portrait.ambientLight !== false;
+  merged.portrait.aiCompanion = merged.portrait.aiCompanion !== false;
   merged.portrait.flipX = merged.portrait.flipX === true;
   merged.portrait.scale = clampNum(merged.portrait.scale, 0.5, 1.6, 1.0);
   merged.portrait.offsetRight = clampNum(merged.portrait.offsetRight, -240, 480, 28);

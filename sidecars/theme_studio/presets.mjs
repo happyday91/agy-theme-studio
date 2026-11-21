@@ -2,7 +2,7 @@
 export const BUILTIN_PRESETS = {
   'hagemi-day': {
     id: 'hagemi-day',
-    name: '哈基米 · 昼（明朗紫韵活力）',
+    name: '哈基米 · 昼',
     scheme: 'light',
     portraitKey: 'day',
     palette: {
@@ -24,7 +24,7 @@ export const BUILTIN_PRESETS = {
   },
   'hagemi-night': {
     id: 'hagemi-night',
-    name: '哈基米 · 夜（柔和暮紫慵懒）',
+    name: '哈基米 · 夜',
     scheme: 'dark',
     portraitKey: 'night',
     palette: {
@@ -46,7 +46,7 @@ export const BUILTIN_PRESETS = {
   },
   'sakura-lilac': {
     id: 'sakura-lilac',
-    name: '樱梦紫粉（扩展预设）',
+    name: '樱梦紫粉',
     scheme: 'light',
     portraitKey: 'day',
     palette: {
@@ -68,7 +68,7 @@ export const BUILTIN_PRESETS = {
   },
   'astral-indigo': {
     id: 'astral-indigo',
-    name: '静谧星蓝（扩展预设）',
+    name: '静谧星蓝',
     scheme: 'dark',
     portraitKey: 'night',
     palette: {
@@ -91,11 +91,18 @@ export const BUILTIN_PRESETS = {
 };
 
 export const BUILTIN_PORTRAITS = {
-  day: { id: 'day', name: '昼版日常（白色吊带 · 牛仔短裤 · 白丝）', file: 'hagemi_day.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
-  night: { id: 'night', name: '夜版慵懒（暮紫丝质吊带裙 · 针织开衫）', file: 'hagemi_night.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
-  bunny: { id: 'bunny', name: '白色花边兔女郎（昼夜通用）', file: 'hagemi_bunny.png', exprAnchor: { dx: -1, dy: 0, scale: 1 } },
-  sailor: { id: 'sailor', name: '深紫 JK 水手服（不露肩 · 昼夜通用）', file: 'hagemi_sailor.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
-  office: { id: 'office', name: '淡紫雪纺黑丝御姐（不露肩 · 昼夜通用）', file: 'hagemi_office.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  day: { id: 'day', name: '白色吊带牛仔短裤', file: 'hagemi_day.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  night: { id: 'night', name: '暮紫丝质吊带裙', file: 'hagemi_night.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  bunny: { id: 'bunny', name: '白色花边兔女郎', file: 'hagemi_bunny.png', exprAnchor: { dx: -1, dy: 0, scale: 1 } },
+  sailor: { id: 'sailor', name: '深紫 JK 水手服', file: 'hagemi_sailor.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  office: { id: 'office', name: '淡紫雪纺黑丝御姐', file: 'hagemi_office.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  street: { id: 'street', name: '暗黑辣妹露脐装', file: 'hagemi_street.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  sweater: { id: 'sweater', name: '暖冬修身毛衣裙', file: 'hagemi_sweater.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  coat: { id: 'coat', name: '冬日炭黑羊绒大衣', file: 'hagemi_coat.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  hoodie: { id: 'hoodie', name: '极客猫耳耳机卫衣', file: 'hagemi_hoodie.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  cheongsam: { id: 'cheongsam', name: '紫蝶新中式改良旗袍', file: 'hagemi_cheongsam.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  maid: { id: 'maid', name: '紫黑蕾丝猫娘女仆', file: 'hagemi_maid.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  witch: { id: 'witch', name: '星穹占星小魔女', file: 'hagemi_witch.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
 };
 
 export const BUILTIN_EXPRESSIONS = {
@@ -105,6 +112,10 @@ export const BUILTIN_EXPRESSIONS = {
   shy: { id: 'shy', name: '害羞脸红', emoji: '😳', desc: '别、别一直盯着我看啦！', file: 'expressions/shy.png', x: 265, y: 195 },
   sleepy: { id: 'sleepy', name: '困倦打盹', emoji: '🥱', desc: '深夜爆肝陪肝摸鱼模式', file: 'expressions/sleepy.png', x: 265, y: 195 },
   starry: { id: 'starry', name: '星星眼', emoji: '🤩', desc: '一次编译零报错的惊喜瞬间', file: 'expressions/starry.png', x: 265, y: 195 },
+  heart: { id: 'heart', name: '爱心眼', emoji: '😍', desc: '被神仙代码甜到心动满格', file: 'expressions/heart.png', x: 265, y: 195 },
+  teary: { id: 'teary', name: '委屈泪眼', emoji: '🥺', desc: '呜呜不要再报红字警告啦', file: 'expressions/teary.png', x: 265, y: 195 },
+  pout: { id: 'pout', name: '鼓腮傲娇', emoji: '😤', desc: '哼才没有特意等你写完代码呢', file: 'expressions/pout.png', x: 265, y: 195 },
+  dizzy: { id: 'dizzy', name: '晕乎蚊香眼', emoji: '😵', desc: '堆栈太长脑瓜开始转圈圈了', file: 'expressions/dizzy.png', x: 265, y: 195 },
 };
 
 export const DEFAULT_SETTINGS = {
@@ -127,6 +138,9 @@ export const DEFAULT_SETTINGS = {
     clickBounce: true,
     clickBounceRange: 0.45,
     clickExpression: true,
+    microMotion: true,
+    ambientLight: true,
+    aiCompanion: true,
     flipX: false,
     scale: 1.0,
     offsetRight: 28,

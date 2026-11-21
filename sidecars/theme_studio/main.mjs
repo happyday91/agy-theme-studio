@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import * as initialSettingsMod from './settings.mjs';
 import * as initialPresetsMod from './presets.mjs';
 import * as initialInjectorMod from './cdp-injector.mjs';
+import * as initialTelemetryMod from './telemetry.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = resolve(HERE, '..', '..', 'assets');
@@ -14,6 +15,7 @@ const UI_PATH = join(HERE, 'ui.html');
 let settingsMod = initialSettingsMod;
 let presetsMod = initialPresetsMod;
 let injectorMod = initialInjectorMod;
+let telemetryMod = initialTelemetryMod;
 
 const dataDir = settingsMod.resolveDataDir();
 try {
@@ -29,6 +31,7 @@ function createInjector() {
     assetsDir: ASSETS_DIR,
     getSettings: () => store.read(),
     resolveTheme: (settings, opts) => settingsMod.resolveEffectiveTheme(settings, opts),
+    telemetryMod,
     onPatch: async (msg) => {
       if (msg?.action === 'pickCustomBg') {
         try {
@@ -194,15 +197,17 @@ async function hotReloadModules() {
   modReloading = true;
   try {
     const ver = Date.now();
-    const [nextPresets, nextSettings, nextInjector] = await Promise.all([
+    const [nextPresets, nextSettings, nextInjector, nextTelemetry] = await Promise.all([
       import(`./presets.mjs?v=${ver}`),
       import(`./settings.mjs?v=${ver}`),
       import(`./cdp-injector.mjs?v=${ver}`),
+      import(`./telemetry.mjs?v=${ver}`),
     ]);
     await injector.stop();
     presetsMod = nextPresets;
     settingsMod = nextSettings;
     injectorMod = nextInjector;
+    telemetryMod = nextTelemetry;
     store = new settingsMod.SettingsStore(join(dataDir, 'settings.json'));
     injector = createInjector();
     injector.start();
@@ -232,7 +237,7 @@ try {
 const modMtimes = new Map();
 try {
   watch(HERE, (_ev, fn) => {
-    if (!fn || !/^(presets|settings|cdp-injector)\.mjs$/.test(fn)) return;
+    if (!fn || !/^(presets|settings|cdp-injector|telemetry)\.mjs$/.test(fn)) return;
     try {
       const mt = statSync(join(HERE, fn)).mtimeMs;
       if (modMtimes.get(fn) === mt) return;
