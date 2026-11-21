@@ -103,6 +103,10 @@ export const BUILTIN_PORTRAITS = {
   cheongsam: { id: 'cheongsam', name: '紫蝶新中式改良旗袍', file: 'hagemi_cheongsam.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
   maid: { id: 'maid', name: '紫黑蕾丝猫娘女仆', file: 'hagemi_maid.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
   witch: { id: 'witch', name: '星穹占星小魔女', file: 'hagemi_witch.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  jk_mint: { id: 'jk_mint', name: '青空薄荷格裙 JK', file: 'hagemi_jk_mint.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  violet_halter: { id: 'violet_halter', name: '紫韵挂脖包臀裙', file: 'hagemi_violet_halter.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  maid_shorts: { id: 'maid_shorts', name: '辣妹热裤猫娘女仆', file: 'hagemi_maid_shorts.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
+  jk_crimson: { id: 'jk_crimson', name: '红领结黑格 JK', file: 'hagemi_jk_crimson.png', exprAnchor: { dx: 0, dy: 0, scale: 1 } },
 };
 
 export const BUILTIN_EXPRESSIONS = {

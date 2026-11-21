@@ -2638,7 +2638,7 @@ function pageController(payload) {
     if (!cache || !hash) return null;
     if (!cache.map[hash]) {
       cache.order.push(hash);
-      while (cache.order.length > 16) {
+      while (cache.order.length > 20) {
         const drop = cache.order.shift();
         if (drop && drop !== hash) delete cache.map[drop];
       }
@@ -3449,7 +3449,7 @@ export class ThemeInjector {
             if (!h) return;
             session.knownImageHashes.delete(h);
             session.knownImageHashes.add(h);
-            while (session.knownImageHashes.size > 16) {
+            while (session.knownImageHashes.size > 20) {
               const oldest = session.knownImageHashes.values().next().value;
               session.knownImageHashes.delete(oldest);
             }

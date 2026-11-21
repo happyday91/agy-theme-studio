@@ -1,4 +1,4 @@
-// 发布前自检脚本：验证注入函数序列化、Overscan WebGL 控制器、12 套立绘、10 款表情及本地遥测状态机无异常
+// 发布前自检脚本：验证注入函数序列化、Overscan WebGL 控制器、16 套立绘、10 款表情及本地遥测状态机无异常
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -24,7 +24,7 @@ for (const marker of ['shaderVer = 5', '__atsOnSignal', 'u_expr_eye', 'u_outfit_
   }
 }
 
-// 2. 验证 12 套内置立绘、10 款表情与新增动态设置项规范化
+// 2. 验证 16 套内置立绘、10 款表情与新增动态设置项规范化
 const inj = new ThemeInjector({
   assetsDir: ASSETS,
   getSettings: () => DEFAULT_SETTINGS,
@@ -32,7 +32,7 @@ const inj = new ThemeInjector({
 });
 
 const portraitIds = Object.keys(BUILTIN_PORTRAITS);
-if (portraitIds.length !== 12) throw new Error(`Expected 12 builtin portraits, got ${portraitIds.length}`);
+if (portraitIds.length !== 16) throw new Error(`Expected 16 builtin portraits, got ${portraitIds.length}`);
 for (const outfitId of portraitIds) {
   const file = join(ASSETS, BUILTIN_PORTRAITS[outfitId].file);
   if (!existsSync(file)) throw new Error(`Missing portrait asset: ${file}`);

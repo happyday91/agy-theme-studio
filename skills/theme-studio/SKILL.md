@@ -31,7 +31,7 @@ description: Control Antigravity Desktop theme customization (day/night auto-sch
   - 启用/暂停美化：`enable` / `disable`
 - **微调右侧哈基米立绘与表情**：
   `set-portrait --opacity 0.72 --auxAvoidOpacity 0.12 --idleMotion true --idleMotionAmp 0.75 --clickBounce true --clickBounceRange 0.45 --clickExpression true --microMotion true --ambientLight true --aiCompanion true --expression wink --flipX false --scale 1.0 --right 28 --bottom 92 --dayOutfit bunny --nightOutfit bunny`
-  （可选穿搭 `day` / `night` / `bunny` / `sailor` 深紫JK水手服 / `office` 淡紫雪纺黑丝御姐 / `street` 暗黑辣妹露脐装 / `sweater` 暖冬修身毛衣裙 / `coat` 冬日炭黑羊绒大衣 / `hoodie` 极客猫耳耳机卫衣 / `cheongsam` 紫蝶新中式改良旗袍 / `maid` 紫黑蕾丝猫娘女仆 / `witch` 星穹占星小魔女；可选表情 `default` 元气招牌 / `wink` 俏皮眨眼 / `smug` 得意猫嘴 / `shy` 害羞脸红 / `sleepy` 困倦打盹 / `starry` 星星眼 / `heart` 爱心眼 / `teary` 委屈泪眼 / `pout` 鼓腮傲娇 / `dizzy` 晕乎蚊香眼；`microMotion` 灵动微动态 / `ambientLight` 光影氛围 / `aiCompanion` 对话默契联动；如需关闭立绘：`set-portrait --enabled false`）
+  （可选穿搭 `day` / `night` / `bunny` / `sailor` 深紫JK水手服 / `office` 淡紫雪纺黑丝御姐 / `street` 暗黑辣妹露脐装 / `sweater` 暖冬修身毛衣裙 / `coat` 冬日炭黑羊绒大衣 / `hoodie` 极客猫耳耳机卫衣 / `cheongsam` 紫蝶新中式改良旗袍 / `maid` 紫黑蕾丝猫娘女仆 / `witch` 星穹占星小魔女 / `jk_mint` 青空薄荷格裙 JK / `violet_halter` 紫韵挂脖包臀裙 / `maid_shorts` 辣妹热裤猫娘女仆 / `jk_crimson` 红领结黑格 JK；可选表情 `default` 元气招牌 / `wink` 俏皮眨眼 / `smug` 得意猫嘴 / `shy` 害羞脸红 / `sleepy` 困倦打盹 / `starry` 星星眼 / `heart` 爱心眼 / `teary` 委屈泪眼 / `pout` 鼓腮傲娇 / `dizzy` 晕乎蚊香眼；`microMotion` 灵动微动态 / `ambientLight` 光影氛围 / `aiCompanion` 对话默契联动；如需关闭立绘：`set-portrait --enabled false`）
 - **调整毛玻璃与自定义底层背景**：
   `set-effects --glassOpacity 0.78 --radius 14 --customBgEnabled true --customBgImage "C:\\path\\to\\bg.jpg" --customBgOpacity 0.48 --font "..."`
 - **微调指定预设色板（每套预设独立互不影响）**：
